@@ -27,6 +27,9 @@ def main():
     app.setApplicationVersion("1.0.0")
     app.setFont(QFont("Segoe UI", 10))
 
+    # Keep the event loop alive when the main window is closed (tray mode)
+    app.setQuitOnLastWindowClosed(False)
+
     # ── First-run setup (no-op after first successful run) ────────────────
     maybe_run_setup()
 

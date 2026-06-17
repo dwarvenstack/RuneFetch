@@ -323,6 +323,7 @@ class DownloadCard(QFrame):
     def _make_btn(self, icon: str, tooltip: str, slot) -> QPushButton:
         btn = QPushButton(icon)
         btn.setToolTip(tooltip)
+        btn.setAccessibleName(tooltip)  # screen-reader label for icon-only buttons
         btn.setFixedSize(QSize(30, 26))
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setStyleSheet(_STYLE_ACTIVE)

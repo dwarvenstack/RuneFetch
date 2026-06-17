@@ -1,0 +1,108 @@
+/* RuneFetch capture chip — injected by content.js */
+
+#rf-capture-chip {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483647;
+  font-family: -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;
+  background: #0d0f14;
+  border: 1px solid #1e2430;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.6);
+  min-width: 260px;
+  max-width: 340px;
+  padding: 0;
+  animation: rf-slide-in 0.18s ease-out;
+  user-select: none;
+}
+
+@keyframes rf-slide-in {
+  from { opacity: 0; transform: translateY(12px) scale(.97); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+.rf-chip-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.rf-logo {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.rf-desc {
+  flex: 1;
+  color: #c5cae3;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rf-btn-dl {
+  background: linear-gradient(90deg, #00d9ff, #0099ff);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.rf-btn-dl:hover {
+  filter: brightness(1.15);
+}
+
+.rf-btn-x {
+  background: transparent;
+  border: none;
+  color: #4a5070;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.rf-btn-x:hover { color: #ff6b6b; }
+
+.rf-list {
+  border-top: 1px solid #1e2430;
+  padding: 4px 12px 6px;
+}
+
+.rf-list-item {
+  color: #8b92a8;
+  font-size: 11px;
+  padding: 3px 0;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rf-list-item:hover { color: #00d9ff; }
+
+.rf-list-more {
+  color: #4a5070;
+  font-size: 11px;
+  padding: 2px 0;
+}
+
+.rf-suppress {
+  border-top: 1px solid #1e2430;
+  padding: 5px 12px;
+  text-align: right;
+}
+
+.rf-suppress-link {
+  color: #4a5070;
+  font-size: 10px;
+  text-decoration: none;
+}
+.rf-suppress-link:hover { color: #8b92a8; }

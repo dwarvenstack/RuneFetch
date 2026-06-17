@@ -33,10 +33,13 @@ def download_direct(item, progress_cb):
 
     progress_cb(2, "", "Connecting…")
 
+    proxy = getattr(item, "proxy", "") or ""
+    proxies = {"http": proxy, "https": proxy} if proxy else None
+
     # Determine filename from a HEAD request first (cheap)
     try:
         head = requests.head(item.url, headers=HEADERS, allow_redirects=True,
-                             timeout=10)
+                             timeout=10, proxies=proxies)
         filename = _get_filename(item.url, head.headers)
     except Exception:
         filename = "download.bin"
@@ -57,7 +60,8 @@ def download_direct(item, progress_cb):
     throttle_kbps = getattr(item, "throttle_kbps", 0)
     min_chunk_time = (CHUNK / (throttle_kbps * 1024)) if throttle_kbps > 0 else 0
 
-    with requests.get(item.url, headers=req_headers, stream=True, timeout=30) as r:
+    with requests.get(item.url, headers=req_headers, stream=True, timeout=30,
+                      proxies=proxies) as r:
         # 416 = Range Not Satisfiable → server doesn't support resume, restart
         if r.status_code == 416:
             resume_pos = 0
@@ -97,7 +101,7 @@ def download_direct(item, progress_cb):
                     pct   = (downloaded / total * 100) if total else 0
                     eta   = _eta(downloaded, total, speed) if total else ""
                     progress_cb(min(pct, 99.9), _fmt_speed(speed), eta,
-                                _fmt_bytes(total))
+                                _fmt_bytes(total), speed_bps=speed)
                     last_t = now
 
                 # Throttle: sleep if we wrote too fast

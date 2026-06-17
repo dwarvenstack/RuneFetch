@@ -25,12 +25,18 @@ hidden = [
     'yt_dlp',
     'yt_dlp.extractor',
     'yt_dlp.extractor._extractors',
-    # HTTP
+    # HTTP / networking
     'requests',
     'urllib3',
     'certifi',
     'charset_normalizer',
     'idna',
+    # WebSocket bridge
+    'websockets',
+    'websockets.server',
+    'websockets.legacy',
+    'websockets.legacy.server',
+    'asyncio',
     # Windows-specific (needed by setup_wizard)
     'winreg',
     'ctypes',
@@ -41,9 +47,12 @@ hidden = [
     'queue', 'threading', 'dataclasses', 'json',
     're', 'subprocess', 'uuid', 'math', 'time',
     'pathlib', 'shutil', 'hashlib', 'tempfile',
+    'secrets', 'ipaddress', 'socket', 'logging',
+    'concurrent.futures',
 ]
 hidden += collect_submodules('yt_dlp')
 hidden += collect_submodules('PyQt6')
+hidden += collect_submodules('websockets')
 
 datas = []
 datas += collect_data_files('yt_dlp')
@@ -102,8 +111,6 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=None,     # swap with 'assets/icon.ico' if you add one
-    # Request UAC elevation prompt on launch via manifest
-    # uac_admin=False means we handle elevation ourselves in setup_wizard.py
     uac_admin=False,
     uac_uiaccess=False,
 )

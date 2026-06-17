@@ -16,11 +16,10 @@ import logging
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QSpinBox, QCheckBox, QFileDialog,
-    QScrollArea, QFrame, QSizePolicy,
+    QScrollArea, QFrame, QSizePolicy, QApplication,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QUrl
 from PyQt6.QtGui import QDesktopServices
-from PyQt6.QtCore import QUrl
 
 from gui.theme import (
     BG_CARD, BG_SECONDARY, BORDER_CARD, TEXT_PRIMARY, TEXT_SECONDARY,
@@ -188,7 +187,55 @@ class SettingsPanel(QWidget):
         self._history_cb = QCheckBox("Keep download history")
         self._history_cb.setChecked(self.cfg.get("keep_history", True))
         beh_grp.add(self._history_cb)
+        self._tray_close_cb = QCheckBox("Minimise to system tray when window is closed")
+        self._tray_close_cb.setChecked(self.cfg.get("close_to_tray", True))
+        beh_grp.add(self._tray_close_cb)
+        self._clip_cb = QCheckBox("Monitor clipboard for URLs (auto-fill URL bar)")
+        self._clip_cb.setChecked(self.cfg.get("clipboard_monitor", False))
+        beh_grp.add(self._clip_cb)
         body_layout.addWidget(beh_grp)
+
+        # ── Browser Extension ─────────────────────────────────────────────────
+        ext_grp = _Group("Browser Extension")
+
+        ext_info = QLabel(
+            "Install the RuneFetch extension in Chrome/Edge, then paste the token "
+            "below into the extension popup to pair it."
+        )
+        ext_info.setWordWrap(True)
+        ext_info.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; background: transparent;")
+        ext_grp.add(ext_info)
+
+        token_row = QHBoxLayout()
+        self._token_edit = QLineEdit(self.cfg.get("bridge_token", ""))
+        self._token_edit.setObjectName("UrlInput")
+        self._token_edit.setReadOnly(True)
+        self._token_edit.setPlaceholderText("Token not yet generated — save settings to generate")
+        token_row.addWidget(self._token_edit, stretch=1)
+
+        self._copy_token_btn = QPushButton("Copy")
+        self._copy_token_btn.setObjectName("SecondaryBtn")
+        self._copy_token_btn.setFixedWidth(64)
+        self._copy_token_btn.setAccessibleName("Copy bridge token to clipboard")
+        self._copy_token_btn.clicked.connect(self._copy_token)
+        token_row.addWidget(self._copy_token_btn)
+        ext_grp.add(self._make_label("Pairing token"))
+        ext_grp.add_layout(token_row)
+
+        port_row = QWidget()
+        port_row.setStyleSheet("background:transparent")
+        pr = QHBoxLayout(port_row)
+        pr.setContentsMargins(0, 0, 0, 0)
+        pr.setSpacing(10)
+        pr.addWidget(self._make_label("Bridge port (default 8765)"), stretch=1)
+        self._bridge_port_spin = QSpinBox()
+        self._bridge_port_spin.setRange(1024, 65535)
+        self._bridge_port_spin.setValue(self.cfg.get("bridge_port", 8765))
+        self._bridge_port_spin.setFixedWidth(80)
+        pr.addWidget(self._bridge_port_spin)
+        ext_grp.add(port_row)
+
+        body_layout.addWidget(ext_grp)
 
         # ── About ─────────────────────────────────────────────────────────────
         about_grp = _Group("About RuneFetch")
@@ -233,6 +280,13 @@ class SettingsPanel(QWidget):
 
     # ── Slots ─────────────────────────────────────────────────────────────────
 
+    def _copy_token(self):
+        token = self._token_edit.text().strip()
+        if token:
+            QApplication.clipboard().setText(token)
+            self._copy_token_btn.setText("Copied!")
+            QTimer.singleShot(1500, lambda: self._copy_token_btn.setText("Copy"))
+
     def _browse_path(self):
         current = self._path_edit.text() or os.path.expanduser("~")
         folder = QFileDialog.getExistingDirectory(
@@ -260,9 +314,16 @@ class SettingsPanel(QWidget):
             self.cfg["max_concurrent"]   = self._conc_spin.value()
             self.cfg["throttle_kbps"]    = self._throttle_spin.value()
             self.cfg["fragment_threads"] = self._frag_spin.value()
-            self.cfg["proxy"]            = self._proxy_edit.text().strip()
-            self.cfg["autostart"]        = self._autostart_cb.isChecked()
-            self.cfg["keep_history"]     = self._history_cb.isChecked()
+            self.cfg["proxy"]              = self._proxy_edit.text().strip()
+            self.cfg["autostart"]          = self._autostart_cb.isChecked()
+            self.cfg["keep_history"]       = self._history_cb.isChecked()
+            self.cfg["close_to_tray"]      = self._tray_close_cb.isChecked()
+            self.cfg["clipboard_monitor"]  = self._clip_cb.isChecked()
+            self.cfg["bridge_port"]        = self._bridge_port_spin.value()
+            # Generate token on first save if absent
+            from utils.settings import get_or_create_bridge_token
+            get_or_create_bridge_token(self.cfg)
+            self._token_edit.setText(self.cfg.get("bridge_token", ""))
 
             cfg_mod.save(self.cfg)
             log.info("Settings saved successfully.")
@@ -307,6 +368,10 @@ class SettingsPanel(QWidget):
         self._proxy_edit.setText(self.cfg.get("proxy", ""))
         self._autostart_cb.setChecked(self.cfg.get("autostart", True))
         self._history_cb.setChecked(self.cfg.get("keep_history", True))
+        self._tray_close_cb.setChecked(self.cfg.get("close_to_tray", True))
+        self._clip_cb.setChecked(self.cfg.get("clipboard_monitor", False))
+        self._bridge_port_spin.setValue(self.cfg.get("bridge_port", 8765))
+        self._token_edit.setText(self.cfg.get("bridge_token", ""))
 
     def get_cfg(self) -> dict:
         return dict(self.cfg)

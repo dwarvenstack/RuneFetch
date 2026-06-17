@@ -37,11 +37,13 @@ class DownloadItem:
 
     # Per-download settings (copied from QueueManager at add() time)
     throttle_kbps: int = 0
+    proxy: str = ""
 
     # Runtime state
     state:     str   = STATE_QUEUED
     progress:  float = 0.0      # 0–100
     speed:     str   = ""
+    speed_bps: float = 0.0      # numeric bytes/s for aggregation
     eta:       str   = ""
     size:      str   = ""
     error_msg: str   = ""
@@ -85,7 +87,7 @@ class QueueManager:
 
     def add(self, url: str, title: str, source_label: str, source_icon: str,
             fmt: str, quality: str, save_path: str, dl_type: str,
-            fragment_threads: int = 4) -> str:
+            fragment_threads: int = 4, proxy: str = "") -> str:
         item_id = uuid.uuid4().hex[:8]
         item = DownloadItem(
             id=item_id, url=url, title=title,
@@ -93,6 +95,7 @@ class QueueManager:
             fmt=fmt, quality=quality, save_path=save_path,
             dl_type=dl_type, fragment_threads=fragment_threads,
             throttle_kbps=self.throttle_kbps,
+            proxy=proxy,
         )
         with self._lock:
             self._items[item_id] = item
@@ -217,16 +220,18 @@ class QueueManager:
 
     def _make_progress_cb(self, item: DownloadItem) -> Callable:
         """Returns a progress callback bound to `item`."""
-        def cb(pct: float, speed: str = "", eta: str = "", size: str = ""):
+        def cb(pct: float, speed: str = "", eta: str = "", size: str = "",
+               speed_bps: float = 0.0):
             # Honour pause
             item.pause_event.wait()   # blocks while paused
 
             if item.cancel_event.is_set():
                 return
 
-            item.progress = float(pct)
-            item.speed    = speed
-            item.eta      = eta
+            item.progress  = float(pct)
+            item.speed     = speed
+            item.speed_bps = float(speed_bps)
+            item.eta       = eta
             if size:
                 item.size = size
             self._notify(item.id)

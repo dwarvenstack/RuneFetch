@@ -17,6 +17,7 @@ Crash fixes applied
 5. Timeout added to subprocess calls (120 s) so pip never hangs forever.
 """
 
+import hashlib
 import os
 import sys
 import shutil
@@ -43,8 +44,36 @@ FFMPEG_URL      = (
     "https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/"
     "ffmpeg-7.1.1-essentials_build.zip"
 )
+FFMPEG_SHA256_URL = (
+    "https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/"
+    "ffmpeg-7.1.1-essentials_build.zip.sha256"
+)
 FFMPEG_ZIP_NAME = "ffmpeg-7.1.1-essentials_build.zip"
 FFMPEG_INNER    = "ffmpeg-7.1.1-essentials_build"
+
+
+# ── SHA-256 verification ──────────────────────────────────────────────────────
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(65536), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _fetch_expected_sha256(cb) -> str | None:
+    """Download the .sha256 sidecar file and return the expected hex digest."""
+    import urllib.request
+    try:
+        cb(0, "Fetching ffmpeg checksum file…")
+        with urllib.request.urlopen(FFMPEG_SHA256_URL, timeout=15) as r:
+            content = r.read().decode("utf-8", errors="replace").strip()
+        # File may be "hexdigest  filename" or just "hexdigest"
+        return content.split()[0].lower()
+    except Exception as e:
+        _log(f"Could not fetch SHA-256: {e}")
+        return None
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -193,6 +222,24 @@ def install_ffmpeg(progress_cb) -> tuple[bool, str]:
                 cb(5 + pct, f"Downloading… {mb:.1f} / {total_mb:.1f} MB")
 
         urllib.request.urlretrieve(FFMPEG_URL, zip_path, reporthook)
+
+        # Verify SHA-256 before extracting
+        expected = _fetch_expected_sha256(lambda _p, m: cb(64, m))
+        if expected:
+            cb(64, "Verifying download integrity…")
+            actual = _sha256_file(zip_path)
+            if actual != expected:
+                zip_path.unlink(missing_ok=True)
+                return False, (
+                    f"SHA-256 mismatch — download may be corrupt or tampered.\n"
+                    f"Expected: {expected[:16]}…\n"
+                    f"Got:      {actual[:16]}…\n"
+                    "Please retry or download ffmpeg manually."
+                )
+            cb(65, "Integrity check passed ✓")
+        else:
+            cb(64, "⚠ Could not verify checksum (offline?) — proceeding with caution.")
+            _log("SHA-256 check skipped: could not fetch sidecar file.")
 
         cb(66, "Extracting ffmpeg…")
         extract_dir = FFMPEG_DIR / "_extract"

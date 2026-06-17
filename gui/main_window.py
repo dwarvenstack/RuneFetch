@@ -25,12 +25,12 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QPushButton, QLineEdit, QStackedWidget,
     QScrollArea, QFrame, QSizePolicy, QFileDialog,
-    QMessageBox, QComboBox,
+    QMessageBox, QComboBox, QSystemTrayIcon, QMenu, QApplication,
 )
 from PyQt6.QtCore import Qt, QTimer, QSize, pyqtSlot
 from PyQt6.QtGui import (
     QPainter, QLinearGradient, QColor, QFont,
-    QDesktopServices, QMouseEvent,
+    QDesktopServices, QMouseEvent, QPixmap, QIcon,
 )
 from PyQt6.QtCore import QUrl
 
@@ -51,6 +51,8 @@ from core.queue_manager import (
     QueueManager, STATE_QUEUED, STATE_DOWNLOADING,
     STATE_COMPLETE, STATE_ERROR, STATE_PAUSED, STATE_CANCELLED,
 )
+from core.bridge import LocalBridge
+from core.queue_persistence import save_queue, load_queue
 import utils.settings as cfg_mod
 
 
@@ -210,6 +212,10 @@ class RuneFetchWindow(QMainWindow):
         self.setStyleSheet(get_stylesheet())
         self._build_ui()
         self._start_poll()
+        self._setup_tray()
+        self._setup_bridge()
+        self._setup_clipboard_monitor()
+        self._restore_queue()
 
     # ── UI construction ──────────────────────────────────────────────────────
 
@@ -501,6 +507,11 @@ class RuneFetchWindow(QMainWindow):
 
     def _on_analyse(self):
         url = self._url_edit.text().strip()
+        if url:
+            self._on_analyse_url(url)
+
+    def _on_analyse_url(self, url: str, suggested_title: str = ""):
+        """Core add-to-queue logic shared by URL bar, bridge, and clipboard."""
         if not url:
             return
 
@@ -531,9 +542,10 @@ class RuneFetchWindow(QMainWindow):
         fmt  = "Audio only (MP3)" if self._audio_on else "Video (MP4)"
         qual = self._selected_qual
 
+        default_title = suggested_title or (info["label"] + " — " + url[:40])
         item_id = self.queue.add(
             url          = url,
-            title        = info["label"] + " — " + url[:40],
+            title        = default_title,
             source_label = info["label"],
             source_icon  = info["icon"],
             fmt          = fmt,
@@ -541,6 +553,7 @@ class RuneFetchWindow(QMainWindow):
             save_path    = save_path,
             dl_type      = info["type"],
             fragment_threads = self.cfg.get("fragment_threads", 4),
+            proxy        = self.cfg.get("proxy", ""),
         )
 
         self._url_edit.clear()
@@ -594,6 +607,15 @@ class RuneFetchWindow(QMainWindow):
         self._poll_timer.start(POLL_MS)
 
     def _poll(self):
+        # Drain URLs arriving from the browser extension bridge
+        if hasattr(self, "_bridge") and self._bridge:
+            while not self._bridge.incoming.empty():
+                try:
+                    url, title = self._bridge.incoming.get_nowait()
+                    self._on_analyse_url(url, suggested_title=title)
+                except Exception:
+                    pass
+
         events = self.queue.poll_events()
         all_items = {i.id: i for i in self.queue.get_items()}
         for item_id in events:
@@ -628,20 +650,14 @@ class RuneFetchWindow(QMainWindow):
         queued = [i for i in items if i.state == STATE_QUEUED]
         total  = len(items)
 
-        # Aggregate speed
-        total_speed = 0.0
-        for i in active:
-            spd = i.speed
-            if spd:
-                try:
-                    val, unit = spd.split()
-                    v = float(val)
-                    if "MB" in unit:   v *= 1024
-                    total_speed += v
-                except Exception:
-                    pass
-        spd_str = f"{total_speed/1024:.1f} MB/s" if total_speed >= 1024 else \
-                  (f"{total_speed:.0f} KB/s" if total_speed > 0 else "")
+        # Aggregate speed using numeric field (avoids re-parsing formatted strings)
+        total_bps = sum(i.speed_bps for i in active)
+        if total_bps >= 1_048_576:
+            spd_str = f"{total_bps/1_048_576:.1f} MB/s"
+        elif total_bps >= 1024:
+            spd_str = f"{total_bps/1024:.0f} KB/s"
+        else:
+            spd_str = f"{total_bps:.0f} B/s" if total_bps > 0 else ""
 
         if active:
             self._status_lbl.setText(
@@ -660,6 +676,18 @@ class RuneFetchWindow(QMainWindow):
         self._queue_count_lbl.setText(
             f"{total} item{'s' if total != 1 else ''}" if total else ""
         )
+
+        # Update tray tooltip with live status
+        if hasattr(self, "_tray"):
+            if active:
+                tip = f"RuneFetch — {len(active)} downloading"
+                if spd_str:
+                    tip += f"  {spd_str}"
+            elif queued:
+                tip = f"RuneFetch — {len(queued)} queued"
+            else:
+                tip = "RuneFetch — idle"
+            self._tray.setToolTip(tip)
 
     # ── History recording ────────────────────────────────────────────────────
 
@@ -789,6 +817,7 @@ class RuneFetchWindow(QMainWindow):
             save_path        = save_path,
             dl_type          = info["type"],
             fragment_threads = self.cfg.get("fragment_threads", 4),
+            proxy            = self.cfg.get("proxy", ""),
         )
         log.info(f"Re-queued from history: {url} (fmt={resolved_fmt})")
 
@@ -802,3 +831,164 @@ class RuneFetchWindow(QMainWindow):
         self.queue.set_concurrency(self.cfg.get("max_concurrent", 2))
         self.queue.set_throttle(self.cfg.get("throttle_kbps", 0))
         self._path_lbl.setText(self.cfg.get("save_path", ""))
+
+    # ── Bridge (Phase 2) ─────────────────────────────────────────────────────
+
+    def _setup_bridge(self):
+        from utils.settings import get_or_create_bridge_token
+        token = get_or_create_bridge_token(self.cfg)
+        port  = self.cfg.get("bridge_port", 8765)
+        self._bridge = LocalBridge(token=token, port=port)
+        self._bridge.start()
+
+    # ── Clipboard monitor (Phase 4) ───────────────────────────────────────────
+
+    def _setup_clipboard_monitor(self):
+        self._last_clip_url = ""
+        clip = QApplication.clipboard()
+        clip.dataChanged.connect(self._on_clipboard_changed)
+
+    def _on_clipboard_changed(self):
+        if not self.cfg.get("clipboard_monitor", False):
+            return
+        text = QApplication.clipboard().text().strip()
+        if not text.startswith(("http://", "https://")):
+            return
+        if text == self._last_clip_url:
+            return
+        self._last_clip_url = text
+        # Auto-fill URL bar when on Downloads tab; tray notification otherwise
+        if self._active_nav == "Downloads" and self.isVisible():
+            self._url_edit.setText(text)
+        elif hasattr(self, "_tray") and self._tray.isVisible():
+            self._tray.showMessage(
+                "RuneFetch — URL detected",
+                text[:80] + ("…" if len(text) > 80 else ""),
+                QSystemTrayIcon.MessageIcon.Information,
+                3000,
+            )
+            self._tray.messageClicked.connect(
+                lambda: (self._tray_restore(), self._url_edit.setText(text))
+            )
+
+    # ── Queue persistence (Phase 4) ───────────────────────────────────────────
+
+    def _restore_queue(self):
+        """Re-queue items that were pending/active when the app last closed."""
+        if not self.cfg.get("autostart", True):
+            return
+        from core.detector import detect
+        for rec in load_queue():
+            url = rec.get("url", "")
+            if not url:
+                continue
+            try:
+                info = detect(url)
+                item_id = self.queue.add(
+                    url          = url,
+                    title        = rec.get("title", url[:40]),
+                    source_label = rec.get("source_label", info["label"]),
+                    source_icon  = rec.get("source_icon", info["icon"]),
+                    fmt          = rec.get("fmt", "Video (MP4)"),
+                    quality      = rec.get("quality", "Best quality"),
+                    save_path    = rec.get("save_path", self.cfg.get("save_path", "")),
+                    dl_type      = rec.get("dl_type", info["type"]),
+                    fragment_threads = rec.get("fragment_threads", 4),
+                    proxy        = rec.get("proxy", self.cfg.get("proxy", "")),
+                )
+                self._ensure_card(item_id)
+            except Exception:
+                pass
+
+    # ── System tray ──────────────────────────────────────────────────────────
+
+    def _setup_tray(self):
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+
+        self._tray = QSystemTrayIcon(self)
+        self._tray.setIcon(self._make_tray_icon())
+        self._tray.setToolTip("RuneFetch")
+
+        menu = QMenu()
+        self._tray_open_action   = menu.addAction("Open RuneFetch")
+        menu.addSeparator()
+        self._tray_pause_action  = menu.addAction("Pause all")
+        self._tray_resume_action = menu.addAction("Resume all")
+        menu.addSeparator()
+        quit_action = menu.addAction("Quit RuneFetch")
+
+        self._tray_open_action.triggered.connect(self._tray_restore)
+        self._tray_pause_action.triggered.connect(self._pause_all)
+        self._tray_resume_action.triggered.connect(self._resume_all)
+        quit_action.triggered.connect(self._tray_quit)
+
+        self._tray.setContextMenu(menu)
+        self._tray.activated.connect(self._on_tray_activated)
+        self._tray.show()
+
+        self._tray_first_hide = True
+
+    def _make_tray_icon(self) -> QIcon:
+        """Create a simple programmatic tray icon (16×16 cyan circle)."""
+        px = QPixmap(16, 16)
+        px.fill(Qt.GlobalColor.transparent)
+        p = QPainter(px)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setBrush(QColor(ACCENT_CYAN))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(1, 1, 14, 14)
+        p.end()
+        return QIcon(px)
+
+    def _on_tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger,
+                      QSystemTrayIcon.ActivationReason.DoubleClick):
+            self._tray_restore()
+
+    def _tray_restore(self):
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        # Resume animations/poll (poll timer is always running; waveforms resume on show)
+
+    def _tray_quit(self):
+        self._shutdown()
+        QApplication.instance().quit()
+
+    def _pause_all(self):
+        for item in self.queue.get_items():
+            self.queue.pause(item.id)
+
+    def _resume_all(self):
+        for item in self.queue.get_items():
+            self.queue.resume(item.id)
+
+    def closeEvent(self, event):
+        """Close button behaviour: minimise to tray (default) or quit."""
+        use_tray = (
+            self.cfg.get("close_to_tray", True)
+            and hasattr(self, "_tray")
+            and self._tray.isVisible()
+        )
+        if use_tray:
+            event.ignore()
+            self.hide()
+            if getattr(self, "_tray_first_hide", True):
+                self._tray_first_hide = False
+                self._tray.showMessage(
+                    "RuneFetch",
+                    "RuneFetch is still running in the system tray.\n"
+                    "Right-click the tray icon to quit.",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    4000,
+                )
+        else:
+            self._shutdown()
+            event.accept()
+
+    def _shutdown(self):
+        """Save queue state and stop background services before exit."""
+        save_queue(self.queue.get_items())
+        if hasattr(self, "_bridge") and self._bridge:
+            self._bridge.stop()

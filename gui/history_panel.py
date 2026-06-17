@@ -6,16 +6,19 @@ Supports clear-all and re-download actions.
 """
 
 import json
+import logging
 import os
 from datetime import datetime
+
+_log = logging.getLogger(__name__)
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QMessageBox,
+    QMessageBox, QMenu,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QAction
 
 from gui.theme import (
     BG_SECONDARY, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
@@ -34,8 +37,8 @@ def load_history() -> list:
         try:
             with open(HISTORY_PATH, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning("Could not load history file %s: %s", HISTORY_PATH, e)
     return []
 
 
@@ -48,16 +51,29 @@ def append_history(entry: dict):
         os.makedirs(os.path.dirname(HISTORY_PATH), exist_ok=True)
         with open(HISTORY_PATH, "w", encoding="utf-8") as f:
             json.dump(records, f, indent=2, ensure_ascii=False)
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning("Could not save history to %s: %s", HISTORY_PATH, e)
+
+
+def delete_history_entry(index: int):
+    """Remove the entry at the given index (0 = oldest). No-op if out of range."""
+    records = load_history()
+    if 0 <= index < len(records):
+        records.pop(index)
+        try:
+            os.makedirs(os.path.dirname(HISTORY_PATH), exist_ok=True)
+            with open(HISTORY_PATH, "w", encoding="utf-8") as f:
+                json.dump(records, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            _log.warning("Could not save history after delete: %s", e)
 
 
 def clear_history():
     try:
         if os.path.exists(HISTORY_PATH):
             os.remove(HISTORY_PATH)
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning("Could not clear history file: %s", e)
 
 
 class HistoryPanel(QWidget):
@@ -119,6 +135,8 @@ class HistoryPanel(QWidget):
         self._table.verticalHeader().setVisible(False)
         self._table.setAlternatingRowColors(False)
         self._table.setShowGrid(False)
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self._table)
 
         # ── Bottom bar ───────────────────────────────────────────────────
@@ -127,9 +145,16 @@ class HistoryPanel(QWidget):
         footer.setStyleSheet(f"background: {BG_SECONDARY}; border-top: 1px solid #1e2430;")
         fl = QHBoxLayout(footer)
         fl.setContentsMargins(20, 0, 20, 0)
-        hint = QLabel("Double-click a row to re-download that item.")
+        hint = QLabel("Double-click to re-download · Right-click to delete.")
         hint.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
-        fl.addWidget(hint)
+        fl.addWidget(hint, stretch=1)
+
+        del_btn = QPushButton("Delete selected")
+        del_btn.setObjectName("SecondaryBtn")
+        del_btn.setAccessibleName("Delete selected history entry")
+        del_btn.clicked.connect(self._delete_selected)
+        fl.addWidget(del_btn)
+
         layout.addWidget(footer)
 
         self._table.cellDoubleClicked.connect(self._on_double_click)
@@ -181,6 +206,43 @@ class HistoryPanel(QWidget):
         if reply == QMessageBox.StandardButton.Yes:
             clear_history()
             self.reload()
+
+    def _show_context_menu(self, pos):
+        row = self._table.rowAt(pos.y())
+        if row < 0:
+            return
+        menu = QMenu(self)
+        redownload_act = QAction("Re-download", self)
+        redownload_act.triggered.connect(lambda: self._on_double_click(row, 0))
+        delete_act = QAction("Delete entry", self)
+        delete_act.triggered.connect(lambda: self._delete_row(row))
+        menu.addAction(redownload_act)
+        menu.addSeparator()
+        menu.addAction(delete_act)
+        menu.exec(self._table.viewport().mapToGlobal(pos))
+
+    def _delete_selected(self):
+        rows = sorted(
+            {idx.row() for idx in self._table.selectedIndexes()},
+            reverse=True,
+        )
+        if not rows:
+            return
+        for row in rows:
+            self._delete_row(row)
+
+    def _delete_row(self, row: int):
+        """Delete the row from the table and from the history file.
+
+        The table is displayed newest-first (reversed), so we must map the
+        visual row back to its original index in the JSON file.
+        """
+        records = load_history()
+        original_idx = len(records) - 1 - row
+        delete_history_entry(original_idx)
+        self._table.removeRow(row)
+        count = self._table.rowCount()
+        self._count_lbl.setText(f"{count} item{'s' if count != 1 else ''}")
 
     def _on_double_click(self, row: int, _col: int):
         """

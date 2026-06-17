@@ -9,8 +9,11 @@ PyQt6>=6.6.0
 yt-dlp>=2025.4.0
 spotdl>=4.2.0
 
-# HTTP / utilities
+# HTTP / networking
 requests>=2.31.0
+websockets>=12.0
+
+# Metadata / utilities
 beautifulsoup4>=4.12.0
 mutagen>=1.47.0
 Pillow>=10.3.0

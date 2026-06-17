@@ -36,14 +36,18 @@ def download_spotify(item, progress_cb):
     progress_cb(3, "", "Fetching Spotify metadata…")
     _log(item, "Connecting to Spotify…", COL_INFO)
 
+    proxy = getattr(item, "proxy", "") or ""
+
     cmd = [
         sys.executable, "-m", "spotdl",
         "--output",  os.path.join(save_dir, "{title} - {artists}.{output-ext}"),
         "--format",  "mp3",
         "--bitrate", "320k",
         "--threads", "4",
-        item.url,
     ]
+    if proxy:
+        cmd += ["--proxy", proxy]
+    cmd.append(item.url)
 
     try:
         proc = subprocess.Popen(

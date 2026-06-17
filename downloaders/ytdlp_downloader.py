@@ -97,7 +97,8 @@ def download_ytdlp(item, progress_cb):
             if total_items > 1:
                 eta_str = f"Track {done_items+1}/{total_items}  {eta_str}"
 
-            progress_cb(min(overall, 99.0), _fmt_speed(speed), eta_str, size_str)
+            progress_cb(min(overall, 99.0), _fmt_speed(speed), eta_str, size_str,
+                        speed_bps=float(speed))
 
         elif status == "finished":
             # Add this file's bytes to cumulative total
@@ -125,6 +126,8 @@ def download_ytdlp(item, progress_cb):
     throttle = getattr(item, "throttle_kbps", 0)
     rate_limit = throttle * 1024 if throttle and throttle > 0 else None
 
+    proxy = getattr(item, "proxy", "") or ""
+
     ydl_opts = {
         "format":                       _build_format(item),
         "outtmpl":                      outtmpl,
@@ -146,6 +149,8 @@ def download_ytdlp(item, progress_cb):
             ),
         },
     }
+    if proxy:
+        ydl_opts["proxy"] = proxy
     # Only set merge format for video — audio extraction needs its own ext
     if not is_audio:
         ydl_opts["merge_output_format"] = "mp4"
@@ -153,16 +158,26 @@ def download_ytdlp(item, progress_cb):
         ydl_opts["ratelimit"] = rate_limit
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        # Pre-extract info to get title, size, and playlist count
-        info = ydl.extract_info(item.url, download=False)
+        # Pre-extract info to get title, size, and playlist count.
+        # Use extract_flat=True so we get count without materialising every entry.
+        flat_opts = dict(ydl_opts)
+        flat_opts["extract_flat"] = "in_playlist"
+        flat_opts["quiet"] = True
+        with yt_dlp.YoutubeDL(flat_opts) as flat_ydl:
+            info = flat_ydl.extract_info(item.url, download=False)
         if info:
             # Playlist?
             entries = info.get("entries")
             if entries is not None:
-                try:
-                    _state["total"] = len(list(entries))
-                except Exception:
-                    _state["total"] = info.get("playlist_count", 1)
+                # Prefer metadata count; only iterate if unavailable
+                count = info.get("playlist_count") or info.get("n_entries")
+                if count:
+                    _state["total"] = int(count)
+                else:
+                    try:
+                        _state["total"] = sum(1 for _ in entries)
+                    except Exception:
+                        _state["total"] = 1
             else:
                 _state["total"] = 1
 

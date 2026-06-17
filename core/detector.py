@@ -99,7 +99,9 @@ def detect(url: str) -> dict:
     except Exception:
         return _result(TYPE_UNKNOWN, "", "Unknown", "🔗", url)
 
-    host = parsed.netloc.lower().lstrip("www.")
+    host = parsed.netloc.lower()
+    if host.startswith("www."):
+        host = host[4:]
 
     # DRM first
     if _match(host, DRM_HOSTS):
