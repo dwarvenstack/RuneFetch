@@ -1,0 +1,17 @@
+# RuneFetch dependencies
+# Install with:  pip install -r requirements.txt
+# Python 3.10+ required; 3.11 or 3.12 recommended.
+
+# GUI framework
+PyQt6>=6.6.0
+
+# Download engines
+yt-dlp>=2025.4.0
+spotdl>=4.2.0
+
+# HTTP / utilities
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+mutagen>=1.47.0
+Pillow>=10.3.0
+tldextract>=5.1.0
