@@ -11,6 +11,7 @@ Fixes in this version
 • Button disabled states are visually unambiguous (near-black + dim text)
 """
 
+import logging
 import os
 import sys
 import subprocess
@@ -25,7 +26,7 @@ from PyQt6.QtGui import QPainter, QLinearGradient, QColor, QBrush, QTextCursor
 from gui.theme import (
     BG_CARD, BG_CARD_HOVER, BORDER_CARD,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
-    ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED,
+    ACCENT_CYAN, ACCENT_AMBER, ACCENT_GREEN, ACCENT_RED,
     CARD_RADIUS, BADGE_DOWNLOADING, BADGE_QUEUED, BADGE_COMPLETE,
     BADGE_ERROR, BADGE_PAUSED, BADGE_CANCELLED,
 )
@@ -36,6 +37,8 @@ from core.queue_manager import (
 )
 
 # ── Badge map ────────────────────────────────────────────────────────────────
+
+_log = logging.getLogger(__name__)
 
 _BADGE_MAP = {
     STATE_DOWNLOADING: BADGE_DOWNLOADING,
@@ -131,17 +134,20 @@ class GradientBadge(QLabel):
         self._resize_to(text)
 
     def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        grad = QLinearGradient(0, 0, self.width(), 0)
-        c1 = QColor(self._c1); c1.setAlpha(210)
-        c2 = QColor(self._c2); c2.setAlpha(210)
-        grad.setColorAt(0.0, c1)
-        grad.setColorAt(1.0, c2)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(grad))
-        p.drawRoundedRect(self.rect(), 11, 11)
-        p.end()
+        try:
+            p = QPainter(self)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            grad = QLinearGradient(0, 0, self.width(), 0)
+            c1 = QColor(self._c1); c1.setAlpha(210)
+            c2 = QColor(self._c2); c2.setAlpha(210)
+            grad.setColorAt(0.0, c1)
+            grad.setColorAt(1.0, c2)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(grad))
+            p.drawRoundedRect(self.rect(), 11, 11)
+            p.end()
+        except Exception as exc:
+            _log.error("GradientBadge paintEvent error: %s", exc)
         super().paintEvent(event)
 
 
@@ -238,10 +244,20 @@ class DownloadCard(QFrame):
             QFrame#DownloadCard {{
                 background: {BG_CARD};
                 border: 1px solid {BORDER_CARD};
+                border-top: 1px solid rgba(255,255,255,0.07);
                 border-radius: {CARD_RADIUS}px;
+            }}
+            QFrame#DownloadCard:hover {{
+                border-color: rgba(245,185,69,0.30);
+                border-top-color: rgba(255,255,255,0.10);
             }}
         """)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        # Resting drop-shadow (Forge §5.4)
+        from gui.motion import apply_shadow
+        self._shadow = apply_shadow(self, blur=10, offset_y=3,
+                                    colour="#000000", alpha=90)
         self._build()
 
     # ── Build ──────────────────────────────────────────────────────────────────
@@ -459,8 +475,14 @@ class DownloadCard(QFrame):
 
     def _meta_text(self) -> str:
         parts = [f"⊙ {self.item.source_label}"]
-        fmt = self.item.fmt or ""
-        if "audio" in fmt.lower() or "mp3" in fmt.lower():
+        qual = getattr(self.item, "quality", "") or ""
+        fmt  = self.item.fmt or ""
+        if qual:
+            # Use the human-readable quality label stored at add() time
+            parts.append(qual)
+        elif "mp3" in fmt.lower() or (
+            "bestvideo" not in fmt.lower() and "audio" in fmt.lower()
+        ):
             parts.append("MP3")
         elif fmt:
             parts.append(fmt)

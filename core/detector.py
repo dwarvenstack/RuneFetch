@@ -45,10 +45,14 @@ DIRECT_EXTENSIONS = {
     ".json", ".xml", ".yaml", ".sql", ".db", ".sqlite",
 }
 
+GDRIVE_HOSTS = {
+    "drive.google.com", "docs.google.com",
+}
+
 YTDLP_HOSTS = (
     TWITTER_HOSTS | INSTAGRAM_HOSTS | FACEBOOK_HOSTS | TIKTOK_HOSTS |
     REDDIT_HOSTS  | VIMEO_HOSTS     | TWITCH_HOSTS   | SOUNDCLOUD_HOSTS |
-    PINTEREST_HOSTS | {
+    PINTEREST_HOSTS | GDRIVE_HOSTS  | {
         "dailymotion.com", "www.dailymotion.com",
         "bilibili.com",    "www.bilibili.com",
         "nicovideo.jp",    "www.nicovideo.jp",
@@ -221,6 +225,7 @@ def _ytdlp_label(host: str) -> str:
         "bilibili.com": "Bilibili", "rumble.com": "Rumble",
         "odysee.com": "Odysee", "archive.org": "Internet Archive",
         "mixcloud.com": "Mixcloud", "bandcamp.com": "Bandcamp",
+        "drive.google.com": "Google Drive", "docs.google.com": "Google Drive",
     }
     for k, v in mapping.items():
         if host.endswith(k):

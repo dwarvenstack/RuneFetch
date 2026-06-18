@@ -10,28 +10,35 @@ Key improvements over the prototype
 • Retries with exponential back-off on fragment errors
 """
 
+import logging
 import os
 import yt_dlp
+
+_log = logging.getLogger(__name__)
 
 COL_NORMAL = "#6b7280"
 COL_OK     = "#2dd4a0"
 COL_ERROR  = "#ff6b6b"
 COL_INFO   = "#00d9ff"
 
-def _log(item, text: str, colour: str = COL_NORMAL):
+def _ilog(item, text: str, colour: str = COL_NORMAL):
     item._log_lines.append((text, colour))
 
 
 def _build_format(item) -> str:
-    fmt = item.fmt.lower()
-    q   = item.quality.lower()
+    fmt = item.fmt
 
-    if "audio" in fmt or "mp3" in fmt:
+    # If the dialog already stored a yt-dlp selector string, use it directly
+    if any(kw in fmt for kw in ("bestvideo", "bestaudio", "best[", "/best")):
+        return fmt
+
+    fmt_lower = fmt.lower()
+    if "audio" in fmt_lower or "mp3" in fmt_lower:
         return "bestaudio/best"
 
+    q = getattr(item, "quality", "").lower()
     height_map = {"2160p": 2160, "1080p": 1080, "720p": 720,
                   "480p": 480, "360p": 360, "240p": 240}
-
     if q in height_map:
         h = height_map[q]
         return (
@@ -42,10 +49,28 @@ def _build_format(item) -> str:
     return "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
 
 
-def _build_postprocessors(item) -> list:
+def _is_audio_only(item) -> bool:
+    """
+    True only when the user explicitly chose an audio-only format.
+    Checks item.quality first (set by _on_analyse_url), then falls back
+    to checking that the fmt string has NO bestvideo component — so a
+    format like "bestvideo+bestaudio/best" is correctly treated as video.
+    """
+    q = getattr(item, "quality", "").lower()
+    if "audio only" in q or "mp3" in q:
+        return True
     fmt = item.fmt.lower()
-    pp  = []
-    if "audio" in fmt or "mp3" in fmt:
+    if "mp3" in fmt:
+        return True
+    # "bestaudio/best" alone (no bestvideo) = audio-only extraction
+    if "bestvideo" not in fmt and fmt.startswith("bestaudio"):
+        return True
+    return False
+
+
+def _build_postprocessors(item) -> list:
+    pp = []
+    if _is_audio_only(item):
         pp.append({
             "key":             "FFmpegExtractAudio",
             "preferredcodec":  "mp3",
@@ -59,6 +84,11 @@ def _build_postprocessors(item) -> list:
 
 
 def download_ytdlp(item, progress_cb):
+    _log.info(
+        "yt-dlp start  url=%s  fmt=%r  quality=%r  is_audio=%s  built_fmt=%r",
+        item.url[:80], item.fmt, getattr(item, "quality", ""),
+        _is_audio_only(item), _build_format(item),
+    )
     save_dir = item.save_path
     os.makedirs(save_dir, exist_ok=True)
 
@@ -67,60 +97,63 @@ def download_ytdlp(item, progress_cb):
               "cumulative_bytes": 0, "last_total_bytes": 0}
 
     def hook(d):
-        # Respect pause — block here until resumed
-        item.pause_event.wait()
+        try:
+            # Respect pause — block here until resumed
+            item.pause_event.wait()
 
-        if item.cancel_event.is_set():
-            raise yt_dlp.utils.DownloadError("Cancelled by user")
+            if item.cancel_event.is_set():
+                raise yt_dlp.utils.DownloadError("Cancelled by user")
 
-        status = d.get("status", "")
+            status = d.get("status", "")
 
-        if status == "downloading":
-            total_b  = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-            dled_b   = d.get("downloaded_bytes", 0)
-            pct_file = (dled_b / total_b * 100) if total_b else 0
+            if status == "downloading":
+                total_b  = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                dled_b   = d.get("downloaded_bytes", 0)
+                pct_file = (dled_b / total_b * 100) if total_b else 0
 
-            total_items = max(_state["total"], 1)
-            done_items  = _state["done"]
-            overall = (done_items * 100 + pct_file) / total_items
-            _state["current_pct"] = pct_file
-            _state["last_total_bytes"] = total_b
+                total_items = max(_state["total"], 1)
+                done_items  = _state["done"]
+                overall = (done_items * 100 + pct_file) / total_items
+                _state["current_pct"] = pct_file
+                _state["last_total_bytes"] = total_b
 
-            speed   = d.get("speed") or 0
-            eta_sec = d.get("eta")   or 0
+                speed   = d.get("speed") or 0
+                eta_sec = d.get("eta")   or 0
 
-            # Live size: cumulative finished + current file total
-            live_bytes = _state["cumulative_bytes"] + total_b
-            size_str = _fmt_bytes(live_bytes) if live_bytes else ""
+                live_bytes = _state["cumulative_bytes"] + total_b
+                size_str = _fmt_bytes(live_bytes) if live_bytes else ""
 
-            eta_str = _fmt_eta(eta_sec)
-            if total_items > 1:
-                eta_str = f"Track {done_items+1}/{total_items}  {eta_str}"
+                eta_str = _fmt_eta(eta_sec)
+                if total_items > 1:
+                    eta_str = f"Track {done_items+1}/{total_items}  {eta_str}"
 
-            progress_cb(min(overall, 99.0), _fmt_speed(speed), eta_str, size_str,
-                        speed_bps=float(speed))
+                progress_cb(min(overall, 99.0), _fmt_speed(speed), eta_str, size_str,
+                            speed_bps=float(speed))
 
-        elif status == "finished":
-            # Add this file's bytes to cumulative total
-            _state["cumulative_bytes"] += _state["last_total_bytes"]
-            _state["done"] += 1
-            total_items = max(_state["total"], 1)
-            pct = min(_state["done"] * 100 / total_items, 99.0)
-            label = "Processing…"
-            if total_items > 1:
-                label = f"Processing track {_state['done']}/{total_items}…"
-                # Log track completion for playlists
-                fname = d.get("filename") or d.get("info_dict", {}).get("title", "")
-                if fname:
-                    import os as _os
-                    short = _os.path.basename(fname)[:80]
-                    _log(item, f"  ✓  {short}", COL_OK)
-            size_str = _fmt_bytes(_state["cumulative_bytes"]) if _state["cumulative_bytes"] else ""
-            progress_cb(pct, "", label, size_str)
+            elif status == "finished":
+                _state["cumulative_bytes"] += _state["last_total_bytes"]
+                _state["done"] += 1
+                total_items = max(_state["total"], 1)
+                pct = min(_state["done"] * 100 / total_items, 99.0)
+                label = "Processing…"
+                if total_items > 1:
+                    label = f"Processing track {_state['done']}/{total_items}…"
+                    fname = d.get("filename") or d.get("info_dict", {}).get("title", "")
+                    if fname:
+                        import os as _os
+                        short = _os.path.basename(fname)[:80]
+                        _ilog(item, f"  ✓  {short}", COL_OK)
+                size_str = _fmt_bytes(_state["cumulative_bytes"]) if _state["cumulative_bytes"] else ""
+                progress_cb(pct, "", label, size_str)
+
+        except yt_dlp.utils.DownloadError:
+            raise   # let yt-dlp handle cancellation
+        except Exception as exc:
+            _log.error("Unexpected error in yt-dlp progress hook: %s", exc, exc_info=True)
 
     outtmpl = os.path.join(save_dir, "%(title).80s.%(ext)s")
 
-    is_audio = "audio" in item.fmt.lower() or "mp3" in item.fmt.lower()
+    is_audio = _is_audio_only(item)
 
     # Build throttle option
     throttle = getattr(item, "throttle_kbps", 0)
@@ -157,44 +190,55 @@ def download_ytdlp(item, progress_cb):
     if rate_limit:
         ydl_opts["ratelimit"] = rate_limit
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        # Pre-extract info to get title, size, and playlist count.
-        # Use extract_flat=True so we get count without materialising every entry.
-        flat_opts = dict(ydl_opts)
-        flat_opts["extract_flat"] = "in_playlist"
-        flat_opts["quiet"] = True
-        with yt_dlp.YoutubeDL(flat_opts) as flat_ydl:
-            info = flat_ydl.extract_info(item.url, download=False)
-        if info:
-            # Playlist?
-            entries = info.get("entries")
-            if entries is not None:
-                # Prefer metadata count; only iterate if unavailable
-                count = info.get("playlist_count") or info.get("n_entries")
-                if count:
-                    _state["total"] = int(count)
-                else:
-                    try:
-                        _state["total"] = sum(1 for _ in entries)
-                    except Exception:
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            flat_opts = dict(ydl_opts)
+            flat_opts["extract_flat"] = "in_playlist"
+            flat_opts["quiet"] = True
+            try:
+                with yt_dlp.YoutubeDL(flat_opts) as flat_ydl:
+                    info = flat_ydl.extract_info(item.url, download=False)
+                if info:
+                    entries = info.get("entries")
+                    if entries is not None:
+                        count = info.get("playlist_count") or info.get("n_entries")
+                        if count:
+                            _state["total"] = int(count)
+                        else:
+                            try:
+                                _state["total"] = sum(1 for _ in entries)
+                            except Exception:
+                                _state["total"] = 1
+                    else:
                         _state["total"] = 1
-            else:
+
+                    item.title = (info.get("title") or info.get("id") or item.title)[:80]
+                    total_bytes = info.get("filesize") or info.get("filesize_approx") or 0
+                    if total_bytes:
+                        item.size = _fmt_bytes(total_bytes)
+                    if _state["total"] > 1:
+                        _ilog(item, f"Playlist: {_state['total']} tracks found.", COL_INFO)
+                    else:
+                        _ilog(item, f"Starting: {item.title[:70]}", COL_INFO)
+            except Exception as exc:
+                _log.warning("Pre-fetch info failed (%s) — proceeding with download anyway", exc)
+                _ilog(item, f"⚠ Could not fetch metadata: {exc}", COL_NORMAL)
                 _state["total"] = 1
 
-            # Update display title
-            item.title = (info.get("title") or info.get("id") or item.title)[:80]
-            # Best-guess size
-            total_bytes = info.get("filesize") or info.get("filesize_approx") or 0
-            if total_bytes:
-                item.size = _fmt_bytes(total_bytes)
-            # Log playlist info
-            if _state["total"] > 1:
-                _log(item, f"Playlist: {_state['total']} tracks found.", COL_INFO)
-            else:
-                _log(item, f"Starting: {item.title[:70]}", COL_INFO)
+            if not item.cancel_event.is_set():
+                ydl.download([item.url])
+                _log.info("yt-dlp complete  title=%s", item.title[:60])
 
-        if not item.cancel_event.is_set():
-            ydl.download([item.url])
+    except yt_dlp.utils.DownloadError as exc:
+        msg = str(exc)
+        if "Cancelled by user" in msg:
+            _log.info("yt-dlp cancelled  url=%s", item.url[:60])
+        else:
+            _log.error("yt-dlp DownloadError: %s", msg)
+            raise
+    except Exception as exc:
+        _log.error("yt-dlp unexpected error: %s", exc, exc_info=True)
+        raise
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

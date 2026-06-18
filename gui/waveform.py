@@ -24,6 +24,7 @@ Lerp speed: EASE_SPEED controls how fast the bar catches up.
 Wave shape: Catmull-Rom cubic Bézier — no jagged lineTo segments.
 """
 
+import logging
 import math
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt, QTimer, QRectF
@@ -31,6 +32,8 @@ from PyQt6.QtGui import (
     QPainter, QLinearGradient, QColor, QPainterPath,
     QPen, QBrush,
 )
+
+_log = logging.getLogger(__name__)
 
 # ── Gradient presets ─────────────────────────────────────────────────────────
 GRADIENT_PRESETS = {
@@ -150,6 +153,12 @@ class WaveformProgress(QWidget):
     # ── Paint ─────────────────────────────────────────────────────────────────
 
     def paintEvent(self, _event):
+        try:
+            self._paint_inner()
+        except Exception as exc:
+            _log.error("WaveformProgress paintEvent error: %s", exc)
+
+    def _paint_inner(self):
         w = self.width()
         h = self.height()
         if w <= 0 or h <= 0:

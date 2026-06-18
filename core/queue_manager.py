@@ -7,11 +7,14 @@ RuneFetch QueueManager — thread-safe download queue with:
   • GUI event queue (poll_events) for thread-safe UI updates
 """
 
+import logging
 import threading
 import uuid
 import queue as q_module
 from dataclasses import dataclass, field
 from typing import Callable, Optional
+
+_log = logging.getLogger(__name__)
 
 # ── States ──────────────────────────────────────────────────────────────────
 STATE_QUEUED      = "Queued"
@@ -87,7 +90,8 @@ class QueueManager:
 
     def add(self, url: str, title: str, source_label: str, source_icon: str,
             fmt: str, quality: str, save_path: str, dl_type: str,
-            fragment_threads: int = 4, proxy: str = "") -> str:
+            fragment_threads: int = 4, proxy: str = "",
+            start_paused: bool = False) -> str:
         item_id = uuid.uuid4().hex[:8]
         item = DownloadItem(
             id=item_id, url=url, title=title,
@@ -97,11 +101,15 @@ class QueueManager:
             throttle_kbps=self.throttle_kbps,
             proxy=proxy,
         )
+        if start_paused:
+            item.state = STATE_PAUSED
+            item.pause_event.clear()
         with self._lock:
             self._items[item_id] = item
             self._order.append(item_id)
         self._notify(item_id)
-        self._dispatch_next()
+        if not start_paused:
+            self._dispatch_next()
         return item_id
 
     def pause(self, item_id: str):
@@ -114,9 +122,15 @@ class QueueManager:
     def resume(self, item_id: str):
         item = self._get(item_id)
         if item and item.state == STATE_PAUSED:
-            item.state = STATE_DOWNLOADING
-            item.pause_event.set()     # unblocks the worker
-            self._notify(item_id)
+            item.pause_event.set()     # unblocks the worker (if running)
+            if item._thread is None or not item._thread.is_alive():
+                # Thread was never started (added with start_paused=True)
+                item.state = STATE_QUEUED
+                self._notify(item_id)
+                self._dispatch_next()
+            else:
+                item.state = STATE_DOWNLOADING
+                self._notify(item_id)
 
     def cancel(self, item_id: str):
         item = self._get(item_id)
@@ -199,6 +213,7 @@ class QueueManager:
 
             item.state = STATE_DOWNLOADING
             self._notify(item.id)
+            _log.info("[%s] Starting download  %s", item.id[:8], item.url[:80])
 
             from downloaders.router import run_download
             run_download(item, self._make_progress_cb(item))
@@ -208,11 +223,13 @@ class QueueManager:
                 item.progress = 100.0
                 item.speed    = ""
                 item.eta      = "Done"
+                _log.info("[%s] Download complete  %s", item.id[:8], item.title[:60])
 
         except Exception as exc:
             if not item.cancel_event.is_set():
                 item.state     = STATE_ERROR
                 item.error_msg = str(exc)
+                _log.error("[%s] Download error  %s  —  %s", item.id[:8], item.url[:60], exc)
         finally:
             self._sem.release()
             self._notify(item.id)
