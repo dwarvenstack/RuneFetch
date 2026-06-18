@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RuneFetch</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=Nunito+Sans:wght@400;600;700&family=Lora:wght@700&family=Hanken+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles/tokens.css">
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+<div id="app-root">
+
+  <!-- ── Title bar ──────────────────────────────────────────────────────── -->
+  <div id="titlebar">
+    <!-- invisible drag overlay; interactive children overlap it via z-index -->
+    <div id="titlebar-drag"></div>
+
+    <span class="brand">⛩ RuneFetch</span>
+    <span class="by-line">by DwarvenStack</span>
+
+    <div class="url-bar-wrap">
+      <input id="url-input" type="text"
+             placeholder="Paste a URL — YouTube, Spotify, or 1000+ sites…"
+             autocomplete="off" spellcheck="false">
+      <button class="tb-btn secondary" id="btn-paste">Paste</button>
+      <button class="tb-btn primary"   id="btn-add">↓ Download</button>
+    </div>
+
+    <div class="titlebar-spacer"></div>
+
+    <div class="titlebar-actions">
+      <button class="win-btn"          id="win-minimize" title="Minimize">─</button>
+      <button class="win-btn maximize-btn" id="win-maximize" title="Maximize">□</button>
+      <button class="win-btn"          id="win-tray"     title="Minimize to tray">⊟</button>
+      <button class="win-btn close"    id="win-close"    title="Close">✕</button>
+    </div>
+  </div>
+
+  <!-- ── Body ───────────────────────────────────────────────────────────── -->
+  <div id="body">
+
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div class="nav-section-label">Queue</div>
+      <button class="nav-btn active" data-view="queue">
+        <span class="icon">↓</span> Downloads
+      </button>
+
+      <div class="nav-section-label" style="margin-top:6px">Library</div>
+      <button class="nav-btn" data-view="history">
+        <span class="icon">◷</span> History
+      </button>
+
+      <div class="sidebar-footer">
+        <button class="nav-btn" data-view="settings">
+          <span class="icon">⚙</span> Settings
+        </button>
+        <a class="sidebar-link" href="#" id="dwarvenstack-link">⛩ DwarvenStack</a>
+      </div>
+    </aside>
+
+    <!-- Content -->
+    <main id="content">
+
+      <!-- ── Queue view ────────────────────────────────────────────────── -->
+      <section id="view-queue" class="view active">
+        <div class="queue-toolbar">
+          <span class="count-badge" id="queue-count"></span>
+          <button class="btn-sm accent"  id="btn-resume-all">▶ Resume all</button>
+          <button class="btn-sm"         id="btn-pause-all">⏸ Pause all</button>
+          <button class="btn-sm"         id="btn-clear-done">Clear done</button>
+          <button class="btn-sm danger"  id="btn-clear-all">Clear all</button>
+        </div>
+
+        <div id="queue-list"></div>
+
+        <div id="empty-state" class="empty-state">
+          <div class="illo">⛩</div>
+          <h3>Queue is empty</h3>
+          <p>Paste a URL above and press <strong>Download</strong> to get started.</p>
+        </div>
+      </section>
+
+      <!-- ── History view ──────────────────────────────────────────────── -->
+      <section id="view-history" class="view">
+        <div class="view-title">History</div>
+        <div class="history-toolbar">
+          <span class="count" id="history-count"></span>
+          <button class="btn-sm" id="btn-history-delete-sel" disabled>Delete selected</button>
+          <button class="btn-sm danger" id="btn-history-clear">Clear all</button>
+        </div>
+        <p class="history-hint">Double-click to re-download · Select to delete</p>
+        <div id="history-list"></div>
+        <div id="history-empty" class="empty-state" style="display:none">
+          <div class="illo">◷</div>
+          <h3>No history yet</h3>
+          <p>Completed downloads will appear here.</p>
+        </div>
+      </section>
+
+      <!-- ── Settings view ─────────────────────────────────────────────── -->
+      <section id="view-settings" class="view">
+        <div class="view-title">Settings</div>
+        <form id="settings-form">
+
+          <div class="settings-block">
+            <h3>Downloads</h3>
+
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Save folder</div>
+                <div class="setting-hint">Where completed downloads are saved</div>
+              </div>
+              <div class="folder-row">
+                <span class="folder-path" id="setting-save-path">—</span>
+                <button type="button" class="btn-sm" id="btn-choose-folder">Browse</button>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Ask for folder per download</div>
+                <div class="setting-hint">Opens a folder picker for every new download</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="setting-prompt-per-file">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Concurrent downloads</div>
+                <div class="setting-hint">Max simultaneous downloads (1–8)</div>
+              </div>
+              <input type="number" id="setting-max-concurrent"
+                     class="setting-input" min="1" max="8" value="2">
+            </div>
+
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Speed limit (KB/s)</div>
+                <div class="setting-hint">0 = unlimited</div>
+              </div>
+              <input type="number" id="setting-throttle"
+                     class="setting-input" min="0" value="0">
+            </div>
+
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Fragment threads</div>
+                <div class="setting-hint">Parallel connections per download</div>
+              </div>
+              <input type="number" id="setting-fragments"
+                     class="setting-input" min="1" max="32" value="4">
+            </div>
+
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Proxy</div>
+                <div class="setting-hint">e.g. socks5://127.0.0.1:1080</div>
+              </div>
+              <input type="text" id="setting-proxy"
+                     class="setting-input wide" placeholder="(none)">
+            </div>
+          </div>
+
+          <div class="settings-block">
+            <h3>Behaviour</h3>
+
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Restore queue on startup</div>
+                <div class="setting-hint">Resume in-progress downloads from last session</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="setting-autostart" checked>
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Keep history</div>
+                <div class="setting-hint">Record completed downloads in history</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="setting-keep-history" checked>
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Clipboard monitor</div>
+                <div class="setting-hint">Detect URLs copied to clipboard</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="setting-clipboard">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Close to tray</div>
+                <div class="setting-hint">Minimize instead of quitting on close</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="setting-close-to-tray" checked>
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-block">
+            <h3>Appearance</h3>
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Theme</div>
+                <div class="setting-hint">Hearth (dark) or Sage (light)</div>
+              </div>
+              <select id="setting-theme" class="setting-input">
+                <option value="dark">Hearth — dark</option>
+                <option value="light">Sage — light</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="settings-block">
+            <h3>Browser Extension</h3>
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Extension token</div>
+                <div class="setting-hint">Paste this token into the RuneFetch browser extension</div>
+              </div>
+              <div class="token-row">
+                <span class="token-val" id="setting-ext-token">—</span>
+                <button type="button" class="btn-sm" id="btn-copy-token">Copy</button>
+              </div>
+            </div>
+          </div>
+
+          <button type="submit" class="btn-save">Save Settings</button>
+        </form>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ── Status bar ──────────────────────────────────────────────────────── -->
+  <div id="statusbar">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">Connecting…</span>
+    <span class="status-sep">·</span>
+    <span class="status-speed" id="status-speed"></span>
+    <span class="status-sep" id="status-sep2" style="display:none">·</span>
+    <span id="status-path"></span>
+    <span style="margin-left:auto;font-size:10px;color:var(--text-muted)">RuneFetch 2.0 · DwarvenStack</span>
+  </div>
+</div><!-- /#app-root -->
+
+<!-- ── Quality modal ──────────────────────────────────────────────────────── -->
+<dialog id="quality-modal">
+  <div class="modal-header">
+    <div class="modal-title" id="qual-title">Select Quality</div>
+    <div class="modal-subtitle" id="qual-subtitle"></div>
+    <button class="modal-close" id="btn-close-qual" title="Close">✕</button>
+  </div>
+  <div class="modal-body">
+    <div class="quality-status" id="qual-status"></div>
+    <div id="qual-options"></div>
+    <div class="modal-later">
+      <input type="checkbox" id="chk-download-later">
+      <label for="chk-download-later">Add to queue paused (download later)</label>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn-modal btn-cancel-modal" id="btn-cancel-qual">Cancel</button>
+    <button type="button" class="btn-modal btn-download" id="btn-download" disabled>Download</button>
+  </div>
+</dialog>
+
+<!-- ── Browser-extension confirm modal ────────────────────────────────────── -->
+<dialog id="confirm-modal">
+  <div class="confirm-body">
+    <button class="modal-close" id="btn-close-confirm" title="Close">✕</button>
+    <div class="confirm-title" id="confirm-title">Download this link?</div>
+    <div class="confirm-url" id="confirm-url"></div>
+    <div class="modal-later" style="border:none;margin:0;padding:0">
+      <input type="checkbox" id="chk-confirm-later">
+      <label for="chk-confirm-later">Download later (add paused)</label>
+    </div>
+  </div>
+  <div class="confirm-footer">
+    <button type="button" class="btn-modal btn-cancel-modal" id="btn-confirm-cancel">Ignore</button>
+    <button type="button" class="btn-modal btn-download" id="btn-confirm-ok">Download</button>
+  </div>
+</dialog>
+
+<!-- ── File already exists modal ──────────────────────────────────────────── -->
+<dialog id="exists-modal">
+  <button class="modal-close" id="btn-close-exists" title="Close">✕</button>
+  <div class="exists-title">File already exists</div>
+  <div class="exists-info" id="exists-info"></div>
+  <div class="exists-footer">
+    <button type="button" class="btn-modal btn-cancel-modal" id="btn-exists-open">Open folder</button>
+    <button type="button" class="btn-modal btn-download" id="btn-exists-redownload">Download again</button>
+  </div>
+</dialog>
+
+<!-- ── Toasts ───────────────────────────────────────────────────────────────── -->
+<div id="toast-container"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

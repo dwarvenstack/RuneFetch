@@ -262,6 +262,10 @@ class SettingsPanel(QWidget):
         self._save_btn.setObjectName("PrimaryBtn")
         self._save_btn.setFixedWidth(150)
         self._save_btn.setMinimumHeight(36)
+        from gui.theme import TEXT_ON_ACCENT
+        self._save_btn.setStyleSheet(
+            f"QPushButton#PrimaryBtn {{ color: {TEXT_ON_ACCENT}; font-weight: 700; }}"
+        )
         # Explicit connection — verified separately from layout fix
         self._save_btn.clicked.connect(self._save)
         save_row.addWidget(self._save_btn)
@@ -353,9 +357,12 @@ class SettingsPanel(QWidget):
 
     def _reset_save_btn(self):
         """Restore save button to its normal PrimaryBtn style."""
+        from gui.theme import TEXT_ON_ACCENT
         self._save_btn.setText("Save Settings")
-        self._save_btn.setStyleSheet("")  # fall back to QSS objectName style
         self._save_btn.setObjectName("PrimaryBtn")
+        self._save_btn.setStyleSheet(
+            f"QPushButton#PrimaryBtn {{ color: {TEXT_ON_ACCENT}; font-weight: 700; }}"
+        )
         self._save_btn.style().unpolish(self._save_btn)
         self._save_btn.style().polish(self._save_btn)
 

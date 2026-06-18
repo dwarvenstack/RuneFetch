@@ -1,16 +1,17 @@
 /* RuneFetch capture chip — injected by content.js */
+/* Hearth dark theme — matches RuneFetch 2.0 web UI */
 
 #rf-capture-chip {
   position: fixed;
   bottom: 24px;
   right: 24px;
   z-index: 2147483647;
-  font-family: -apple-system, "Segoe UI", sans-serif;
+  font-family: 'Nunito Sans', 'Segoe UI', system-ui, sans-serif;
   font-size: 13px;
-  background: #0d0f14;
-  border: 1px solid #1e2430;
+  background: #292019;
+  border: 1px solid rgba(255,255,255,0.10);
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0,0,0,.6);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.55);
   min-width: 260px;
   max-width: 340px;
   padding: 0;
@@ -31,13 +32,13 @@
 }
 
 .rf-logo {
-  font-size: 16px;
+  font-size: 17px;
   flex-shrink: 0;
 }
 
 .rf-desc {
   flex: 1;
-  color: #c5cae3;
+  color: #B8A894;
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
@@ -45,64 +46,105 @@
 }
 
 .rf-btn-dl {
-  background: linear-gradient(90deg, #00d9ff, #0099ff);
-  color: #fff;
+  background: #E3A65A;
+  color: #2A1F12;
   border: none;
   border-radius: 6px;
-  padding: 5px 10px;
+  padding: 5px 11px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
+  font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
+  transition: filter 0.15s;
 }
 .rf-btn-dl:hover {
-  filter: brightness(1.15);
+  filter: brightness(1.1);
 }
 
 .rf-btn-x {
   background: transparent;
   border: none;
-  color: #4a5070;
+  color: #7A6A58;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   padding: 2px 4px;
   flex-shrink: 0;
   line-height: 1;
+  transition: color 0.15s;
 }
-.rf-btn-x:hover { color: #ff6b6b; }
+.rf-btn-x:hover { color: #D96B5F; }
 
 .rf-list {
-  border-top: 1px solid #1e2430;
+  border-top: 1px solid rgba(255,255,255,0.07);
   padding: 4px 12px 6px;
 }
 
 .rf-list-item {
-  color: #8b92a8;
+  color: #7A6A58;
   font-size: 11px;
   padding: 3px 0;
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color 0.15s;
 }
-.rf-list-item:hover { color: #00d9ff; }
+.rf-list-item:hover { color: #E3A65A; }
 
 .rf-list-more {
-  color: #4a5070;
+  color: #4A3A28;
   font-size: 11px;
   padding: 2px 0;
 }
 
 .rf-suppress {
-  border-top: 1px solid #1e2430;
+  border-top: 1px solid rgba(255,255,255,0.07);
   padding: 5px 12px;
   text-align: right;
 }
 
 .rf-suppress-link {
-  color: #4a5070;
+  color: #4A3A28;
   font-size: 10px;
   text-decoration: none;
+  transition: color 0.15s;
 }
-.rf-suppress-link:hover { color: #8b92a8; }
+.rf-suppress-link:hover { color: #7A6A58; }
+
+/* ── Mode B: per-thumbnail download button ─────────────────────────────────── */
+
+.rf-thumb-btn {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2147483646;
+  background: rgba(227, 166, 90, 0.92);
+  color: #2A1F12;
+  border: none;
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  pointer-events: none;
+  white-space: nowrap;
+  font-family: 'Nunito Sans', 'Segoe UI', system-ui, sans-serif;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  letter-spacing: .02em;
+}
+
+/* Reveal on anchor hover */
+a:hover > .rf-thumb-btn,
+a:focus > .rf-thumb-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.rf-thumb-btn:hover {
+  background: rgba(227, 166, 90, 1);
+  transform: scale(1.05);
+}

@@ -19,6 +19,7 @@ ENV/
 # ── PyInstaller build artefacts ───────────────────────────────
 build/
 dist/
+*.spec
 *.spec.bak
 
 # ── Distribution / packaging ──────────────────────────────────
@@ -72,13 +73,16 @@ runefetch_history.json
 queue_state.json
 *.runefetch.json
 
-# ── ffmpeg auto-downloaded bundle ────────────────────────────
+# ── Bundled binaries (yt-dlp, ffmpeg — downloaded at runtime) ─
+tools/
 ffmpeg.zip
 ffmpeg-*.zip
 ffmpeg.exe
 ffmpeg
 ffprobe
 ffprobe.exe
+yt-dlp.exe
+yt-dlp
 
 # ── Logs ─────────────────────────────────────────────────────
 *.log
@@ -100,3 +104,14 @@ browser_extension/*.zip
 *.p12
 .secrets
 secrets.json
+
+# ── Node (if web tooling ever added) ─────────────────────────
+node_modules/
+package-lock.json
+yarn.lock
+
+# ── Misc ─────────────────────────────────────────────────────
+*.bak
+*.orig
+*.swp
+.DS_Store

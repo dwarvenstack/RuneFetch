@@ -17,15 +17,18 @@ Layout
   └─────────────────────────────────────────────────────┘
 """
 
+import logging
 import os
 import sys
 from datetime import datetime
+
+_log = logging.getLogger(__name__)
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QPushButton, QLineEdit, QStackedWidget,
     QScrollArea, QFrame, QSizePolicy, QFileDialog,
-    QMessageBox, QComboBox, QSystemTrayIcon, QMenu, QApplication,
+    QMessageBox, QComboBox, QSystemTrayIcon, QMenu, QApplication, QDialog,
 )
 from PyQt6.QtCore import Qt, QTimer, QSize, pyqtSlot
 from PyQt6.QtGui import (
@@ -39,12 +42,16 @@ from gui.theme import (
     BG_PRIMARY, BG_SECONDARY, BORDER, BORDER_CARD,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
     ACCENT_CYAN, ACCENT_BLUE, ACCENT_GREEN, ACCENT_RED,
-    GRAD_CYAN_BLUE, GRAD_ORANGE_RED, GRAD_PURPLE_CYAN,
+    GRAD_BEIGE_STEEL, GRAD_ORANGE_RED, GRAD_STEEL_BLUE,
     SIDEBAR_WIDTH, TITLEBAR_HEIGHT, STATUSBAR_HEIGHT,
 )
 from gui.download_card import DownloadCard
 from gui.settings_panel import SettingsPanel
 from gui.history_panel import HistoryPanel, append_history
+from gui.quality_dialog import QualityDialog
+from gui.download_confirm_dialog import (
+    DownloadConfirmDialog, ACTION_START, ACTION_LATER,
+)
 
 from core.detector import detect, TYPE_DRM
 from core.queue_manager import (
@@ -64,12 +71,7 @@ NAV_ITEMS = [
     ("Settings",  "⚙"),
 ]
 
-# Bug 2 fix: Video removed from format group; Audio is now a standalone toggle.
-# Quality chips form their own independent group (Best quality is the default).
-# Audio toggle ON  → extract audio only (MP3) regardless of source type.
-# Audio toggle OFF → extract full content (video+audio for video sources).
-AUDIO_TOGGLE_LABEL = "Audio only (MP3)"
-QUALITY_CHIPS = ["Best quality", "1080p", "720p", "480p", "360p"]
+# Quality is selected per-download via QualityDialog — no static chip list needed.
 
 
 # ── Custom title bar ────────────────────────────────────────────────────────
@@ -94,7 +96,7 @@ class _TitleBar(QWidget):
         layout.setSpacing(8)
 
         # Wordmark — painted as a gradient label
-        brand = _GradientLabel("⛩ RuneFetch", GRAD_CYAN_BLUE)
+        brand = _GradientLabel("⛩ RuneFetch", GRAD_BEIGE_STEEL)
         brand.setStyleSheet(
             "font-size: 15px; font-weight: 800; letter-spacing: 1px; background: transparent;"
         )
@@ -137,29 +139,44 @@ class _TitleBar(QWidget):
 
     # Drag to move
     def mousePressEvent(self, e: QMouseEvent):
-        if e.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = e.globalPosition().toPoint()
+        try:
+            if e.button() == Qt.MouseButton.LeftButton:
+                self._drag_pos = e.globalPosition().toPoint()
+        except Exception as exc:
+            _log.error("TitleBar mousePressEvent: %s", exc)
 
     def mouseMoveEvent(self, e: QMouseEvent):
-        if self._drag_pos and e.buttons() == Qt.MouseButton.LeftButton:
-            delta = e.globalPosition().toPoint() - self._drag_pos
-            self._win.move(self._win.pos() + delta)
-            self._drag_pos = e.globalPosition().toPoint()
+        try:
+            if self._drag_pos and e.buttons() == Qt.MouseButton.LeftButton:
+                delta = e.globalPosition().toPoint() - self._drag_pos
+                self._win.move(self._win.pos() + delta)
+                self._drag_pos = e.globalPosition().toPoint()
+        except Exception as exc:
+            _log.error("TitleBar mouseMoveEvent: %s", exc)
 
     def mouseReleaseEvent(self, e: QMouseEvent):
         self._drag_pos = None
 
+    def mouseDoubleClickEvent(self, e: QMouseEvent):
+        try:
+            if e.button() == Qt.MouseButton.LeftButton:
+                self._toggle_max()
+        except Exception as exc:
+            _log.error("TitleBar mouseDoubleClickEvent: %s", exc)
+
     def paintEvent(self, _event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        grad = QLinearGradient(0, 0, self.width(), 0)
-        grad.setColorAt(0.0, QColor(BG_SECONDARY))
-        grad.setColorAt(1.0, QColor(BG_PRIMARY))
-        p.fillRect(self.rect(), grad)
-        # Bottom border
-        p.setPen(QColor(BORDER))
-        p.drawLine(0, self.height() - 1, self.width(), self.height() - 1)
-        p.end()
+        try:
+            p = QPainter(self)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            grad = QLinearGradient(0, 0, self.width(), 0)
+            grad.setColorAt(0.0, QColor(BG_SECONDARY))
+            grad.setColorAt(1.0, QColor(BG_PRIMARY))
+            p.fillRect(self.rect(), grad)
+            p.setPen(QColor(BORDER))
+            p.drawLine(0, self.height() - 1, self.width(), self.height() - 1)
+            p.end()
+        except Exception as exc:
+            _log.error("TitleBar paintEvent: %s", exc)
 
 
 class _GradientLabel(QLabel):
@@ -200,14 +217,18 @@ class RuneFetchWindow(QMainWindow):
         self._cards: dict[str, DownloadCard] = {}
         self._active_nav = "Downloads"
         # Bug 2 fix: Audio is a toggle (bool), quality is the only chip group
-        self._audio_on      = False         # True = extract audio only
-        self._selected_qual = "Best quality"
 
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.resize(860, 640)
         self.setMinimumSize(720, 520)
         self.setWindowTitle("RuneFetch")
+
+        # Set window + taskbar icon from assets if available
+        import pathlib
+        _icon_path = pathlib.Path(__file__).parent.parent / "assets" / "runefetch_icon.png"
+        if _icon_path.exists():
+            self.setWindowIcon(QIcon(str(_icon_path)))
 
         self.setStyleSheet(get_stylesheet())
         self._build_ui()
@@ -286,75 +307,43 @@ class RuneFetchWindow(QMainWindow):
         # URL section
         url_container = QWidget()
         url_container.setObjectName("PanelHeader")
-        url_container.setFixedHeight(120)
         uc_layout = QVBoxLayout(url_container)
-        uc_layout.setContentsMargins(20, 12, 20, 12)
-        uc_layout.setSpacing(8)
+        uc_layout.setContentsMargins(20, 14, 20, 10)
+        uc_layout.setSpacing(6)
 
         # URL row
         url_row = QHBoxLayout()
-        url_row.setSpacing(8)
+        url_row.setSpacing(10)
         self._url_edit = QLineEdit()
         self._url_edit.setObjectName("UrlInput")
         self._url_edit.setPlaceholderText(
-            "Paste a link — YouTube, Spotify, direct file, or any of 1000+ sites…"
+            "Drop a link here — YouTube, Spotify, or any of 1000+ sites…"
         )
         self._url_edit.returnPressed.connect(self._on_analyse)
         url_row.addWidget(self._url_edit, stretch=1)
 
-        analyse_btn = QPushButton("  ↓  Add")
+        analyse_btn = QPushButton("↓  Add")
         analyse_btn.setObjectName("PrimaryBtn")
-        analyse_btn.setFixedWidth(96)
+        analyse_btn.setFixedWidth(100)
+        from gui.theme import TEXT_ON_ACCENT
+        analyse_btn.setStyleSheet(
+            f"QPushButton#PrimaryBtn {{ color: {TEXT_ON_ACCENT}; font-weight: 700; }}"
+        )
         analyse_btn.clicked.connect(self._on_analyse)
         url_row.addWidget(analyse_btn)
         uc_layout.addLayout(url_row)
 
-        # Chip row — Bug 2 fix
-        # Layout: [QUALITY label] [Best quality] [1080p] … [360p]  |  [🎵 Audio toggle]
-        # Audio toggle is visually separated at the right — it is independent of
-        # the quality group and does not contaminate it.
-        chips_row = QHBoxLayout()
-        chips_row.setSpacing(6)
-        self._chip_btns: dict[str, QPushButton] = {}
-
-        quality_lbl = QLabel("QUALITY")
-        quality_lbl.setObjectName("SectionLabel")
-        chips_row.addWidget(quality_lbl)
-
-        for chip in QUALITY_CHIPS:
-            btn = QPushButton(chip)
-            btn.setObjectName("ChipBtn")
-            btn.setProperty("active", chip == self._selected_qual)
-            btn.clicked.connect(lambda _c, t=chip: self._on_quality_chip(t))
-            chips_row.addWidget(btn)
-            self._chip_btns[chip] = btn
-
-        chips_row.addStretch()
-
-        # Audio toggle — standalone, visually separated by a small spacer
-        sep_lbl = QLabel("|")
-        sep_lbl.setStyleSheet("color: #2a2f3d; font-size: 13px; padding: 0 4px;")
-        chips_row.addWidget(sep_lbl)
-
-        self._audio_btn = QPushButton("🎵  Audio only")
-        self._audio_btn.setObjectName("ChipBtn")
-        self._audio_btn.setProperty("active", self._audio_on)
-        self._audio_btn.setToolTip(
-            "Toggle ON: extract audio only (MP3).\n"
-            "Toggle OFF: download full video (or audio if source is audio-only)."
-        )
-        self._audio_btn.clicked.connect(self._on_audio_toggle)
-        chips_row.addWidget(self._audio_btn)
-
-        uc_layout.addLayout(chips_row)
+        hint_lbl = QLabel("Format & quality are chosen for each download — just paste and go.")
+        hint_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; padding-left: 2px;")
+        uc_layout.addWidget(hint_lbl)
 
         dl_layout.addWidget(url_container)
 
         # Queue list section header
         queue_hdr = QWidget()
-        queue_hdr.setFixedHeight(32)
+        queue_hdr.setFixedHeight(36)
         qhl = QHBoxLayout(queue_hdr)
-        qhl.setContentsMargins(20, 0, 16, 0)
+        qhl.setContentsMargins(20, 0, 20, 0)
         ql_lbl = QLabel("DOWNLOAD QUEUE")
         ql_lbl.setObjectName("SectionLabel")
         qhl.addWidget(ql_lbl, stretch=1)
@@ -463,45 +452,7 @@ class RuneFetchWindow(QMainWindow):
             btn.style().unpolish(btn)
             btn.style().polish(btn)
 
-    # ── Chips — Bug 2 fix ────────────────────────────────────────────────────
-    # Quality chips and the Audio toggle are completely independent.
-    # _on_quality_chip only ever changes _selected_qual.
-    # _on_audio_toggle only ever flips _audio_on.
-    # They never share state or contaminate each other.
-
-    def _on_quality_chip(self, text: str):
-        """Select a quality tier. Audio toggle is unaffected."""
-        self._selected_qual = text
-        self._refresh_quality_chips()
-
-    def _on_audio_toggle(self):
-        """
-        Toggle audio-only mode on/off.
-
-        ON:  item.fmt will be set to "Audio only (MP3)" → yt-dlp extracts
-             bestaudio and postprocesses to MP3 regardless of source type.
-        OFF: item.fmt reflects the content type (video+audio for video sources,
-             audio-only for audio-only sources like SoundCloud/Spotify).
-        """
-        self._audio_on = not self._audio_on
-        self._audio_btn.setProperty("active", self._audio_on)
-        self._audio_btn.style().unpolish(self._audio_btn)
-        self._audio_btn.style().polish(self._audio_btn)
-        # Update tooltip to reflect current state
-        if self._audio_on:
-            self._audio_btn.setToolTip("Audio only ON — will extract MP3. Click to turn off.")
-        else:
-            self._audio_btn.setToolTip(
-                "Audio only OFF — will download full content. Click to turn on."
-            )
-
-    def _refresh_quality_chips(self):
-        """Refresh only quality chip active states — never touches audio toggle."""
-        for text, btn in self._chip_btns.items():
-            is_active = (text == self._selected_qual)
-            btn.setProperty("active", is_active)
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
+    # Quality is now handled per-download via QualityDialog — no chip state needed.
 
     # ── Analyse & add ────────────────────────────────────────────────────────
 
@@ -510,7 +461,40 @@ class RuneFetchWindow(QMainWindow):
         if url:
             self._on_analyse_url(url)
 
-    def _on_analyse_url(self, url: str, suggested_title: str = ""):
+    def _show_download_confirm(self, url: str, suggested_title: str = ""):
+        """Show IDM-style confirmation dialog when a URL arrives from the extension."""
+        _log.info("Extension URL received: %s", url[:80])
+
+        # Bring window to front so the dialog is visible
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+        dlg = DownloadConfirmDialog(
+            url              = url,
+            suggested_title  = suggested_title,
+            default_save_path= self.cfg.get("save_path", ""),
+            proxy            = self.cfg.get("proxy", ""),
+            parent           = self,
+        )
+        result = dlg.exec()
+        if result != QDialog.DialogCode.Accepted or dlg.action == "cancel":
+            _log.debug("Extension download cancelled by user")
+            return
+
+        # Override save path with user's choice from the dialog
+        save_path = dlg.save_path or self.cfg.get("save_path", "")
+
+        # Add to queue — with pause pre-cleared if "Download Later"
+        self._on_analyse_url(
+            url,
+            suggested_title = suggested_title,
+            _save_path      = save_path,
+            _start_paused   = (dlg.action == ACTION_LATER),
+        )
+
+    def _on_analyse_url(self, url: str, suggested_title: str = "",
+                        _save_path: str = "", _start_paused: bool = False):
         """Core add-to-queue logic shared by URL bar, bridge, and clipboard."""
         if not url:
             return
@@ -526,21 +510,42 @@ class RuneFetchWindow(QMainWindow):
             )
             return
 
-        # Determine save path
-        save_path = self.cfg.get("save_path", "")
-        if self.cfg.get("prompt_per_file", False):
+        # Determine save path — _save_path pre-set by confirm dialog takes priority
+        save_path = _save_path or self.cfg.get("save_path", "")
+        if not _save_path and self.cfg.get("prompt_per_file", False):
             chosen = QFileDialog.getExistingDirectory(
                 self, "Choose save folder for this download", save_path
             )
             if chosen:
                 save_path = chosen
 
-        # Bug 2 fix: fmt is derived from the audio toggle, not a format chip group.
-        # If audio toggle is ON, always use "Audio only (MP3)".
-        # If audio toggle is OFF, use the source's natural type
-        # (video sources get video+audio; audio-only sources get audio).
-        fmt  = "Audio only (MP3)" if self._audio_on else "Video (MP4)"
-        qual = self._selected_qual
+        from core.detector import TYPE_YOUTUBE, TYPE_YTDLP, TYPE_DIRECT, TYPE_SPOTIFY
+        dl_type = info["type"]
+
+        # For video/yt-dlp sources: show quality selection dialog
+        # For direct files and Spotify: no quality choice needed
+        fmt  = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
+        qual = "Best quality"
+
+        if dl_type in (TYPE_YOUTUBE, TYPE_YTDLP):
+            default_title = suggested_title or info["label"]
+            dlg = QualityDialog(
+                url            = url,
+                suggested_title= default_title,
+                is_playlist    = info.get("is_playlist", False),
+                proxy          = self.cfg.get("proxy", ""),
+                parent         = self,
+            )
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return   # user cancelled
+            fmt, is_audio, qual = dlg.selected_format()
+        elif dl_type == TYPE_SPOTIFY:
+            fmt  = "Audio only (MP3)"
+            qual = "Best quality"
+        else:
+            # Direct file — no quality selection
+            fmt  = "Video (MP4)"
+            qual = "Best quality"
 
         default_title = suggested_title or (info["label"] + " — " + url[:40])
         item_id = self.queue.add(
@@ -554,6 +559,7 @@ class RuneFetchWindow(QMainWindow):
             dl_type      = info["type"],
             fragment_threads = self.cfg.get("fragment_threads", 4),
             proxy        = self.cfg.get("proxy", ""),
+            start_paused = _start_paused,
         )
 
         self._url_edit.clear()
@@ -575,7 +581,7 @@ class RuneFetchWindow(QMainWindow):
             self._empty_lbl.hide()
         card = DownloadCard(item, self.queue, self.cfg, self._cards_container)
         card.deleted.connect(self._on_card_deleted)
-        self._cards_layout.addWidget(card)
+        self._cards_layout.insertWidget(0, card)   # newest/active always on top
         self._cards[item_id] = card
 
     def _on_card_deleted(self, item_id: str):
@@ -612,7 +618,7 @@ class RuneFetchWindow(QMainWindow):
             while not self._bridge.incoming.empty():
                 try:
                     url, title = self._bridge.incoming.get_nowait()
-                    self._on_analyse_url(url, suggested_title=title)
+                    self._show_download_confirm(url, title)
                 except Exception:
                     pass
 
@@ -739,15 +745,12 @@ class RuneFetchWindow(QMainWindow):
         4. Does NOT call _on_analyse() — constructs the queue.add() call
            directly to avoid any side-effects from the URL analysis path.
         """
-        import logging, os
-        log = logging.getLogger(__name__)
-
         url   = record.get("url", "").strip()
         fmt   = record.get("fmt", "")
         title = record.get("title", "")
 
         if not url:
-            log.warning("_redownload called with empty URL, ignoring.")
+            _log.warning("_redownload called with empty URL, ignoring.")
             return
 
         save_path = record.get("save_path", "") or self.cfg.get("save_path", "")
@@ -930,7 +933,12 @@ class RuneFetchWindow(QMainWindow):
         self._tray_first_hide = True
 
     def _make_tray_icon(self) -> QIcon:
-        """Create a simple programmatic tray icon (16×16 cyan circle)."""
+        """Load icon from assets/runefetch_icon.png; fall back to a cyan circle."""
+        import pathlib
+        icon_path = pathlib.Path(__file__).parent.parent / "assets" / "runefetch_icon.png"
+        if icon_path.exists():
+            return QIcon(str(icon_path))
+        # Fallback: programmatic cyan circle
         px = QPixmap(16, 16)
         px.fill(Qt.GlobalColor.transparent)
         p = QPainter(px)
@@ -963,6 +971,101 @@ class RuneFetchWindow(QMainWindow):
     def _resume_all(self):
         for item in self.queue.get_items():
             self.queue.resume(item.id)
+
+    # ── Mouse-based edge resize ───────────────────────────────────────────────
+
+    _RESIZE_MARGIN = 7   # px detection border
+    _resize_dir    = None
+    _resize_origin = None
+    _resize_geom   = None
+
+    def _edge_at(self, pos):
+        """Return a string like 'left', 'bottom-right', etc., or None."""
+        x, y = pos.x(), pos.y()
+        w, h = self.width(), self.height()
+        m    = self._RESIZE_MARGIN
+        on_l = x <= m;  on_r = x >= w - m
+        on_t = y <= m;  on_b = y >= h - m
+        if on_t and on_l:  return "top-left"
+        if on_t and on_r:  return "top-right"
+        if on_b and on_l:  return "bottom-left"
+        if on_b and on_r:  return "bottom-right"
+        if on_l:           return "left"
+        if on_r:           return "right"
+        if on_t:           return "top"
+        if on_b:           return "bottom"
+        return None
+
+    _CURSOR_MAP = {
+        "left":         Qt.CursorShape.SizeHorCursor,
+        "right":        Qt.CursorShape.SizeHorCursor,
+        "top":          Qt.CursorShape.SizeVerCursor,
+        "bottom":       Qt.CursorShape.SizeVerCursor,
+        "top-left":     Qt.CursorShape.SizeFDiagCursor,
+        "bottom-right": Qt.CursorShape.SizeFDiagCursor,
+        "top-right":    Qt.CursorShape.SizeBDiagCursor,
+        "bottom-left":  Qt.CursorShape.SizeBDiagCursor,
+    }
+
+    def mousePressEvent(self, e):
+        try:
+            if e.button() == Qt.MouseButton.LeftButton:
+                edge = self._edge_at(e.position().toPoint())
+                if edge:
+                    self._resize_dir    = edge
+                    self._resize_origin = e.globalPosition().toPoint()
+                    self._resize_geom   = self.geometry()
+                    e.accept()
+                    return
+        except Exception as exc:
+            _log.error("Window mousePressEvent: %s", exc)
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        try:
+            if self._resize_dir and e.buttons() == Qt.MouseButton.LeftButton:
+                gpos  = e.globalPosition().toPoint()
+                dx    = gpos.x() - self._resize_origin.x()
+                dy    = gpos.y() - self._resize_origin.y()
+                geo   = self._resize_geom
+                x, y, w, h = geo.x(), geo.y(), geo.width(), geo.height()
+                minw, minh = self.minimumWidth(), self.minimumHeight()
+                d = self._resize_dir
+
+                if "right"  in d: w = max(minw, geo.width()  + dx)
+                if "bottom" in d: h = max(minh, geo.height() + dy)
+                if "left"   in d:
+                    nw = max(minw, geo.width() - dx)
+                    x  = geo.right() - nw + 1
+                    w  = nw
+                if "top"    in d:
+                    nh = max(minh, geo.height() - dy)
+                    y  = geo.bottom() - nh + 1
+                    h  = nh
+
+                self.setGeometry(x, y, w, h)
+                e.accept()
+                return
+
+            edge = self._edge_at(e.position().toPoint())
+            cursor = self._CURSOR_MAP.get(edge, Qt.CursorShape.ArrowCursor)
+            self.setCursor(cursor)
+        except Exception as exc:
+            _log.error("Window mouseMoveEvent: %s", exc)
+        super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        try:
+            if self._resize_dir:
+                self._resize_dir    = None
+                self._resize_origin = None
+                self._resize_geom   = None
+                self.setCursor(Qt.CursorShape.ArrowCursor)
+                e.accept()
+                return
+        except Exception as exc:
+            _log.error("Window mouseReleaseEvent: %s", exc)
+        super().mouseReleaseEvent(e)
 
     def closeEvent(self, event):
         """Close button behaviour: minimise to tray (default) or quit."""

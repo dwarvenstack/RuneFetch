@@ -27,6 +27,8 @@ DEFAULTS = {
     "theme":                "dark",
     "bridge_token":         "",      # set on first run by get_or_create_bridge_token()
     "bridge_port":          8765,
+    "ui_token":             "",      # set on first run by app.py for the web UI server
+    "ui_port":              8770,
     "clipboard_monitor":    False,   # auto-detect URLs copied to clipboard
     "close_to_tray":        True,    # X button minimises to tray
 }

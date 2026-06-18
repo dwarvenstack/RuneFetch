@@ -2,8 +2,10 @@
 # Install with:  pip install -r requirements.txt
 # Python 3.10+ required; 3.11 or 3.12 recommended.
 
-# GUI framework
-PyQt6>=6.6.0
+# Web UI framework (Path B — new default entry point: app.py)
+pywebview>=5.0
+pystray>=0.19
+pyperclip>=1.8.2      # optional: clipboard monitor feature
 
 # Download engines
 yt-dlp>=2025.4.0
@@ -13,8 +15,11 @@ spotdl>=4.2.0
 requests>=2.31.0
 websockets>=12.0
 
-# Metadata / utilities
+# Image / metadata utilities
+Pillow>=10.3.0
 beautifulsoup4>=4.12.0
 mutagen>=1.47.0
-Pillow>=10.3.0
 tldextract>=5.1.0
+
+# Legacy Qt UI (optional — only needed if running main.py instead of app.py)
+# PyQt6>=6.6.0

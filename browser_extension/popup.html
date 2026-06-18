@@ -9,10 +9,10 @@
 
     body {
       width: 300px;
-      font-family: -apple-system, "Segoe UI", sans-serif;
+      font-family: 'Nunito Sans', 'Segoe UI', system-ui, sans-serif;
       font-size: 13px;
-      background: #0d0f14;
-      color: #c5cae3;
+      background: #1E1812;
+      color: #ECE1CF;
     }
 
     .header {
@@ -20,130 +20,156 @@
       align-items: center;
       gap: 8px;
       padding: 12px 16px 10px;
-      border-bottom: 1px solid #1e2430;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: #292019;
     }
-    .header-logo { font-size: 20px; }
-    .header-title { font-size: 15px; font-weight: 700; color: #e0e4f8; }
-    .header-sub   { font-size: 10px; color: #4a5070; margin-top: 1px; }
+    .header-logo  { font-size: 20px; }
+    .header-title {
+      font-size: 15px; font-weight: 700;
+      background: linear-gradient(90deg, #E3A65A, #A7B388);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .header-sub { font-size: 10px; color: #7A6A58; margin-top: 1px; }
 
     .status-row {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 16px;
-      background: #0a0c10;
+      padding: 8px 16px;
+      background: #17120D;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
     }
     .dot {
-      width: 8px; height: 8px;
+      width: 7px; height: 7px;
       border-radius: 50%;
-      background: #4a5070;
+      background: #7A6A58;
       flex-shrink: 0;
     }
-    .dot.connected  { background: #2dd4a0; }
-    .dot.connecting { background: #ff9f0a; animation: blink 1s infinite; }
-    .dot.error      { background: #ff6b6b; }
+    .dot.connected  { background: #6EC98A; }
+    .dot.connecting { background: #E3A65A; animation: blink 1s infinite; }
+    .dot.error      { background: #D96B5F; }
 
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
 
-    #status-text { font-size: 12px; color: #8b92a8; flex: 1; }
+    #status-text { font-size: 11px; color: #7A6A58; flex: 1; }
 
-    .section { padding: 10px 16px; border-bottom: 1px solid #1a1d28; }
-    .section-label { font-size: 10px; color: #4a5070; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+    .section {
+      padding: 10px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+    .section-label {
+      font-size: 10px; color: #7A6A58;
+      text-transform: uppercase; letter-spacing: .07em; margin-bottom: 6px;
+      font-weight: 700;
+    }
 
     .token-row { display: flex; gap: 6px; align-items: center; }
     #token-input {
       flex: 1;
-      background: #12151f;
-      border: 1px solid #1e2430;
+      background: #17120D;
+      border: 1px solid rgba(255,255,255,0.09);
       border-radius: 6px;
-      color: #8b92a8;
+      color: #B8A894;
       font-size: 11px;
       padding: 5px 8px;
-      font-family: "Courier New", monospace;
-      letter-spacing: .02em;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      letter-spacing: .03em;
+      outline: none;
+      transition: border-color 0.18s;
     }
-    #token-input:focus { outline: none; border-color: #0099ff; }
+    #token-input:focus { border-color: #E3A65A; }
 
     button {
-      background: #1a1d28;
-      border: 1px solid #1e2430;
+      background: #332821;
+      border: 1px solid rgba(255,255,255,0.09);
       border-radius: 6px;
-      color: #c5cae3;
+      color: #B8A894;
       font-size: 12px;
+      font-family: inherit;
       padding: 5px 10px;
       cursor: pointer;
       white-space: nowrap;
+      transition: background 0.18s, color 0.18s;
     }
-    button:hover { background: #1e2330; }
+    button:hover { background: #3E3028; color: #ECE1CF; }
 
     .btn-primary {
-      background: linear-gradient(90deg, #00d9ff, #0099ff);
+      background: #E3A65A;
       border: none;
-      color: #fff;
-      font-weight: 600;
+      color: #2A1F12;
+      font-weight: 700;
     }
-    .btn-primary:hover { filter: brightness(1.1); }
+    .btn-primary:hover { filter: brightness(1.08); background: #E3A65A; color: #2A1F12; }
 
     #btn-save  { font-size: 11px; padding: 5px 10px; }
-    #btn-clear { font-size: 11px; padding: 5px 8px; color: #ff6b6b; }
+    #btn-clear { font-size: 11px; padding: 5px 8px; color: #D96B5F; border-color: transparent; background: transparent; }
+    #btn-clear:hover { background: rgba(217,107,95,0.12); color: #D96B5F; }
 
     .url-row { display: flex; gap: 6px; }
     #url-input {
       flex: 1;
-      background: #12151f;
-      border: 1px solid #1e2430;
+      background: #17120D;
+      border: 1px solid rgba(255,255,255,0.09);
       border-radius: 6px;
-      color: #c5cae3;
+      color: #ECE1CF;
       font-size: 12px;
       padding: 5px 8px;
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.18s;
     }
-    #url-input:focus { outline: none; border-color: #0099ff; }
-    #url-input::placeholder { color: #3a4060; }
+    #url-input:focus { border-color: #E3A65A; }
+    #url-input::placeholder { color: #4A3A28; }
 
     .toggle-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 8px 16px;
+      padding: 9px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
     }
-    .toggle-label { font-size: 12px; color: #8b92a8; }
+    .toggle-label { font-size: 12px; color: #B8A894; }
 
-    /* simple toggle */
-    .toggle { position: relative; display: inline-block; width: 32px; height: 18px; }
+    .toggle { position: relative; display: inline-block; width: 34px; height: 19px; }
     .toggle input { opacity: 0; width: 0; height: 0; }
     .slider {
       position: absolute; inset: 0;
-      background: #1e2430;
-      border-radius: 18px;
+      background: #292019;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 19px;
       cursor: pointer;
-      transition: .2s;
+      transition: 0.18s;
     }
     .slider::before {
       content: "";
       position: absolute;
-      height: 12px; width: 12px;
-      left: 3px; top: 3px;
-      background: #4a5070;
+      height: 13px; width: 13px;
+      left: 2px; top: 2px;
+      background: #7A6A58;
       border-radius: 50%;
-      transition: .2s;
+      transition: 0.18s;
     }
-    .toggle input:checked + .slider { background: #0077cc; }
-    .toggle input:checked + .slider::before { transform: translateX(14px); background: #fff; }
+    .toggle input:checked + .slider { background: #E3A65A; border-color: #E3A65A; }
+    .toggle input:checked + .slider::before { transform: translateX(15px); background: #2A1F12; }
 
     .footer {
       padding: 8px 16px 10px;
       display: flex;
       justify-content: flex-end;
       gap: 8px;
+      background: #1E1812;
     }
 
     #msg {
       padding: 5px 16px;
       font-size: 11px;
-      color: #2dd4a0;
+      color: #6EC98A;
       min-height: 20px;
     }
-    #msg.error { color: #ff6b6b; }
+    #msg.error { color: #D96B5F; }
+    #msg.warn  { color: #E3A65A; }
   </style>
 </head>
 <body>
@@ -152,7 +178,7 @@
   <span class="header-logo">⛩</span>
   <div>
     <div class="header-title">RuneFetch</div>
-    <div class="header-sub">Desktop download manager</div>
+    <div class="header-sub">by DwarvenStack</div>
   </div>
 </div>
 
@@ -164,7 +190,7 @@
 <div class="section">
   <div class="section-label">Token pairing</div>
   <div class="token-row">
-    <input type="password" id="token-input" placeholder="Paste token from RuneFetch settings" autocomplete="off">
+    <input type="password" id="token-input" placeholder="Paste token from RuneFetch → Settings" autocomplete="off">
     <button id="btn-save">Save</button>
     <button id="btn-clear">✕</button>
   </div>
@@ -174,7 +200,7 @@
   <div class="section-label">Send URL manually</div>
   <div class="url-row">
     <input type="url" id="url-input" placeholder="https://…">
-    <button class="btn-primary" id="btn-send">Send</button>
+    <button class="btn-primary" id="btn-send">↓ Send</button>
   </div>
 </div>
 

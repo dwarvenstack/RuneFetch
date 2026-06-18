@@ -15,34 +15,31 @@ Thread model:
 """
 
 import asyncio
-import ipaddress
 import json
 import logging
 import queue as q_module
-import socket
 import threading
-from urllib.parse import urlparse
+
+from utils import net_guard
 
 _log = logging.getLogger(__name__)
 
 DEFAULT_PORT = 8765
 
-_PRIVATE_NETS = [
-    ipaddress.ip_network(n) for n in (
-        "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
-        "127.0.0.0/8", "169.254.0.0/16",
-        "::1/128", "fc00::/7", "fe80::/10",
-    )
-]
-
 
 def _is_private(url: str) -> bool:
+    """
+    True if the URL should be blocked (private/local address) OR cannot be
+    safely resolved. Fails CLOSED — an unresolvable host is treated as blocked,
+    since it could not be downloaded anyway and may be a rebinding attempt.
+    """
     try:
-        host = urlparse(url).hostname or ""
-        addr = ipaddress.ip_address(socket.gethostbyname(host))
-        return any(addr in net for net in _PRIVATE_NETS)
-    except Exception:
+        net_guard.assert_url_allowed(url)
         return False
+    except net_guard.BlockedAddressError:
+        return True
+    except Exception:
+        return True
 
 
 class LocalBridge:
@@ -125,6 +122,13 @@ class LocalBridge:
     async def _handler(self, websocket):
         """Handle one persistent WebSocket connection (extension background page)."""
         peer = getattr(websocket, "remote_address", "?")
+        # Reject cross-site WebSocket connections from ordinary web pages. The
+        # legitimate client is the browser extension (chrome-extension:// origin).
+        origin = net_guard.get_ws_origin(websocket)
+        if not net_guard.ws_origin_allowed(origin):
+            _log.warning("Bridge: rejected connection with disallowed Origin %r", origin)
+            await websocket.close(1008, "forbidden origin")
+            return
         _log.debug("Bridge: connection from %s", peer)
         try:
             async for raw in websocket:

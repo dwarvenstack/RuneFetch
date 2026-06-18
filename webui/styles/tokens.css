@@ -1,0 +1,50 @@
+/* ── Hearth (dark) — default ─────────────────────────────────────────────── */
+:root {
+  --bg:          #1E1812;
+  --surface:     #292019;
+  --raised:      #332821;
+  --sunken:      #17120D;
+  --overlay:     rgba(14, 10, 6, 0.72);
+  --text:        #ECE1CF;
+  --text-2:      #B8A894;
+  --text-muted:  #7A6A58;
+  --text-on-accent: #2A1F12;
+  --accent:      #E3A65A;
+  --accent-2:    #A7B388;
+  --accent-red:  #D96B5F;
+  --accent-green:#6EC98A;
+  --border:      rgba(255,255,255,0.08);
+  --border-focus:#E3A65A;
+  --shadow:      0 4px 24px rgba(0,0,0,0.5);
+  --shadow-sm:   0 2px 8px  rgba(0,0,0,0.35);
+  --radius:      10px;
+  --radius-sm:   6px;
+  --font-display:'Fraunces', 'Georgia', serif;
+  --font-body:   'Nunito Sans', 'Segoe UI', system-ui, sans-serif;
+  --font-mono:   'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  --titlebar-h:  40px;
+  --sidebar-w:   200px;
+  --statusbar-h: 28px;
+  --transition:  0.18s ease;
+}
+
+/* ── Sage (light) ────────────────────────────────────────────────────────── */
+[data-theme='light'] {
+  --bg:          #E6E9E0;
+  --surface:     #F1F3EC;
+  --raised:      #FBFCF8;
+  --sunken:      #DCE0D3;
+  --overlay:     rgba(54, 67, 58, 0.55);
+  --text:        #36433A;
+  --text-2:      #5A6B5E;
+  --text-muted:  #8A9E8E;
+  --text-on-accent: #FBFCF8;
+  --accent:      #6F8F73;
+  --accent-2:    #C08A5E;
+  --accent-red:  #C0544A;
+  --accent-green:#4A9B6A;
+  --border:      rgba(0,0,0,0.10);
+  --border-focus:#6F8F73;
+  --shadow:      0 4px 20px rgba(0,0,0,0.12);
+  --shadow-sm:   0 2px 6px  rgba(0,0,0,0.08);
+}

@@ -17,6 +17,8 @@ from pathlib import Path
 
 import requests
 
+from utils import net_guard
+
 _log = logging.getLogger(__name__)
 
 HEADERS = {
@@ -33,34 +35,58 @@ _MIN_SEG_SIZE = 1 << 20   # don't segment files smaller than 1 MB
 
 def download(item, progress_cb=None) -> bool:
     """
-    Download *item.url* to *item.dest* using parallel range requests.
+    Download *item.url* into *item.save_path* using parallel range requests.
+
+    The destination filename is derived from the server's Content-Disposition
+    header (or the URL), sanitized, and contained within save_path.
 
     progress_cb(pct, speed_str, eta_str, size_str, speed_bps=float)
 
     Returns True on success, False on failure (item.error is set).
     """
+    from downloaders.direct_downloader import (
+        _get_filename, _unique_path, _contain, download_direct,
+    )
+
     url    = item.url
-    dest   = Path(item.dest)
     n_segs = int(getattr(item, "fragment_threads", 4))
     proxy  = getattr(item, "proxy", "") or ""
     proxies = {"http": proxy, "https": proxy} if proxy else None
     stop_evt: threading.Event = getattr(item, "_stop_event", threading.Event())
 
-    dest.parent.mkdir(parents=True, exist_ok=True)
-
-    # ── HEAD to discover size and Range support ────────────────────────────────
+    save_dir = item.save_path
     try:
-        head = requests.head(url, headers=HEADERS, allow_redirects=True, timeout=10, proxies=proxies)
+        os.makedirs(save_dir, exist_ok=True)
+    except OSError as exc:
+        item.error = f"Cannot create save dir: {exc}"
+        return False
+
+    def _single() -> bool:
+        # Single-stream fallback: direct_downloader handles its own dest +
+        # filename from save_path and raises on failure.
+        download_direct(item, progress_cb)
+        return True
+
+    # ── HEAD to discover size, Range support, and filename ─────────────────────
+    try:
+        head = net_guard.safe_request("HEAD", url, headers=HEADERS,
+                                      allow_redirects=True, timeout=10, proxies=proxies)
         total = int(head.headers.get("content-length", 0))
         accepts_ranges = head.headers.get("accept-ranges", "").lower() == "bytes"
+        filename = _get_filename(url, head.headers)
+    except net_guard.BlockedAddressError as exc:
+        _log.warning("Segmented download blocked by net guard: %s", exc)
+        item.error = "URL resolves to a private/local address — blocked."
+        return False
     except Exception as exc:
         item.error = str(exc)
         return False
 
     if not total or not accepts_ranges or total < _MIN_SEG_SIZE or n_segs <= 1:
-        # Fallback to single-stream via direct_downloader
-        from downloaders.direct_downloader import download as _single
-        return _single(item, progress_cb)
+        return _single()
+
+    dest = Path(_contain(save_dir, _unique_path(save_dir, filename)))
+    item.title = dest.name
 
     seg_size  = math.ceil(total / n_segs)
     ranges    = [(i * seg_size, min((i + 1) * seg_size - 1, total - 1)) for i in range(n_segs)]
@@ -79,7 +105,8 @@ def download(item, progress_cb=None) -> bool:
         lo, hi = ranges[idx]
         seg_headers = {**HEADERS, "Range": f"bytes={lo}-{hi}"}
         try:
-            with requests.get(url, headers=seg_headers, stream=True, timeout=60, proxies=proxies) as r:
+            with net_guard.safe_request("GET", url, headers=seg_headers, stream=True,
+                                        timeout=60, proxies=proxies) as r:
                 r.raise_for_status()
                 with open(tmp_files[idx], "wb") as f:
                     for chunk in r.iter_content(_CHUNK):
