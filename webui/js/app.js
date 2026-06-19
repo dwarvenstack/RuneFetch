@@ -99,7 +99,6 @@ function switchView(name) {
 function setupTitleBar() {
   // Window controls
   $('win-minimize').addEventListener('click', () => pyApi('minimize'));
-  $('win-tray').addEventListener('click',     () => pyApi('minimize_to_tray'));
   $('win-close').addEventListener('click',    () => pyApi('close'));
   $('win-maximize').addEventListener('click', toggleMaximize);
 
@@ -217,19 +216,31 @@ function applyResize(r, e) {
 function setupUrlBar() {
   $('btn-paste').addEventListener('click', async () => {
     try {
-      const t = await navigator.clipboard.readText();
-      $('url-input').value = t.trim();
-      $('url-input').focus();
+      let text = '';
+      // navigator.clipboard.readText() is blocked in WebView2 from file:// (not a secure context).
+      // Use the Python API first; fall back to navigator.clipboard for dev/browser usage.
+      if (window.pywebview?.api?.read_clipboard) {
+        text = await window.pywebview.api.read_clipboard();
+      } else {
+        text = await navigator.clipboard.readText();
+      }
+      if (text) {
+        $('url-input').value = text.trim();
+        $('url-input').focus();
+      } else {
+        toast('Clipboard is empty', 'warn');
+      }
     } catch { toast('Clipboard read failed', 'warn'); }
   });
 
-  $('btn-add').addEventListener('click', startDownload);
+  $('btn-add').addEventListener('click', () => startDownload());
   $('url-input').addEventListener('keydown', e => { if (e.key === 'Enter') startDownload(); });
 }
 
 async function startDownload(urlOverride, detOverride) {
   const raw = (urlOverride || $('url-input').value || '').trim();
-  if (!raw) return;
+  if (!raw) { toast('Paste or type a URL first', 'warn'); return; }
+  if (!S.connected) { toast('Not connected to server — please wait a moment', 'warn'); return; }
   const url = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw;
 
   let det = detOverride;
@@ -251,6 +262,30 @@ async function startDownload(urlOverride, detOverride) {
     try { savePathOverride = await window.pywebview.api.choose_folder() || ''; } catch {}
   }
 
+  // Direct files (images, PDFs, archives, docs) — skip modal entirely
+  if (det.type === 'direct') {
+    try {
+      await ws.send('add', {
+        url,
+        opts: {
+          title:        det.label || '',
+          source_label: det.label || '',
+          source_icon:  det.icon  || '',
+          fmt:          'best',
+          quality:      '',
+          dl_type:      'direct',
+          save_path:    savePathOverride || S.settings.save_path || '',
+          start_paused: false,
+          is_playlist:  false,
+        },
+      });
+      toast('Download started', 'info');
+      if (S.view !== 'queue') switchView('queue');
+      if (!urlOverride) $('url-input').value = '';
+    } catch (err) { toast('Failed to add: ' + err.message, 'error'); }
+    return;
+  }
+
   S.pendingUrl        = url;
   S.pendingDet        = det;
   S.pendingFormats    = null;
@@ -259,8 +294,31 @@ async function startDownload(urlOverride, detOverride) {
   S.selectedQualLabel = '';
   S.pendingSavePath   = savePathOverride;
 
+  // Spotify / audio-only platforms: show simplified audio quality options
+  if (det.type === 'spotify') {
+    openAudioQualityModal(det);
+    if (!urlOverride) $('url-input').value = '';
+    return;
+  }
+
   openQualityModal(det);
   if (!urlOverride) $('url-input').value = '';
+}
+
+// ── Audio-only quality modal (Spotify, SoundCloud, etc.) ─────────────────────
+
+function openAudioQualityModal(det) {
+  $('qual-title').textContent    = 'Select Audio Quality';
+  $('qual-subtitle').textContent = (det.batch_label || det.label || '').slice(0, 60);
+  $('btn-download').disabled     = false;
+  $('chk-download-later').checked = false;
+  $('qual-status').textContent   = 'Choose audio quality:';
+  showQualityOptions([
+    { label: 'Best quality (320 kbps)', fmt: 'bestaudio/best', isAudio: true, sz: '' },
+    { label: 'Standard (128 kbps)',     fmt: 'bestaudio[abr<=128]/bestaudio/best', isAudio: true, sz: '' },
+  ], false);
+  pickQuality({ label: 'Best quality (320 kbps)', fmt: 'bestaudio/best', isAudio: true });
+  $('quality-modal').showModal();
 }
 
 // ── Quality modal ─────────────────────────────────────────────────────────────
@@ -397,6 +455,7 @@ async function confirmDownload() {
         dl_type:      det.type   || 'ytdlp',
         save_path:    S.pendingSavePath || S.settings.save_path || '',
         start_paused: startPaused,
+        is_playlist:  det.is_playlist || false,
       },
     });
     toast(startPaused ? 'Added to queue (paused)' : 'Download started', 'info');
@@ -722,11 +781,18 @@ function onSettings(cfg) {
 
 // ── Card rendering ────────────────────────────────────────────────────────────
 
+const BADGE_CLS = {
+  Queued:'badge-queued', Downloading:'badge-downloading',
+  Complete:'badge-complete', Error:'badge-error',
+  Paused:'badge-paused', Cancelled:'badge-cancelled',
+};
+
 function upsertCard(item) {
   const list = $('queue-list');
   let card = list.querySelector(`[data-id="${item.id}"]`);
+  const isNew = !card;
 
-  if (!card) {
+  if (isNew) {
     card = document.createElement('div');
     card.className = 'card';
     card.dataset.id = item.id;
@@ -734,24 +800,20 @@ function upsertCard(item) {
     card.addEventListener('click', onCardClick);
   }
 
-  const st = item.state || 'Queued';
-  const badgeCls = { Queued:'badge-queued', Downloading:'badge-downloading',
-    Complete:'badge-complete', Error:'badge-error',
-    Paused:'badge-paused', Cancelled:'badge-cancelled' }[st] || 'badge-queued';
-
-  const active  = st === 'Downloading';
-  const paused  = st === 'Paused';
-  const queued  = st === 'Queued';
-  const done    = ['Complete','Error','Cancelled'].includes(st);
+  const st       = item.state || 'Queued';
+  const badgeCls = BADGE_CLS[st] || 'badge-queued';
+  const active   = st === 'Downloading';
+  const paused   = st === 'Paused';
+  const queued   = st === 'Queued';
+  const done     = ['Complete','Error','Cancelled'].includes(st);
   const canPause  = active || paused;
   const canCancel = active || paused || queued;
   const pct = Math.min(100, Math.max(0, item.progress || 0));
-
   const sub = [item.source_label, item.quality, item.size].filter(Boolean).join('  ·  ');
 
-  let progressHtml = '';
-  if (!done || item.progress > 0) {
-    progressHtml = `
+  if (isNew) {
+    // First render — build full innerHTML once
+    const progressHtml = (!done || item.progress > 0) ? `
       <div class="progress-row">
         <div class="progress-track">
           <div class="progress-fill${active ? ' active' : ''}" style="width:${pct}%"></div>
@@ -759,44 +821,105 @@ function upsertCard(item) {
         <span class="progress-pct">${pct.toFixed(0)}%</span>
       </div>
       <div class="speed-row">
-        ${item.speed ? `<span class="spd">${esc(item.speed)}</span>` : ''}
-        ${item.eta   ? `<span>${esc(item.eta)}</span>` : ''}
-        ${item.size  ? `<span class="sz">${esc(item.size)}</span>` : ''}
-      </div>`;
+        <span class="spd">${esc(item.speed || '')}</span>
+        <span class="eta-txt">${esc(item.eta || '')}</span>
+        <span class="sz">${esc(item.size || '')}</span>
+      </div>` : '';
+
+    card.innerHTML = `
+      <div class="card-header">
+        <div class="card-icon">${esc(item.source_icon || '↓')}</div>
+        <div class="card-meta">
+          <div class="card-title" title="${esc(item.title || item.url || '')}">${esc(item.title || item.url || 'Loading…')}</div>
+          <div class="card-sub">
+            <span class="card-badge ${badgeCls}">${st}</span>
+            <span class="card-sub-txt">${sub ? esc(sub) : ''}</span>
+          </div>
+          <div class="card-error" style="${st === 'Error' ? '' : 'display:none'}" title="${esc(item.error_msg || '')}">${esc(item.error_msg || '')}</div>
+        </div>
+        <div class="card-actions">
+          <button class="icon-btn" data-action="${paused ? 'resume' : 'pause'}"
+            title="${paused ? 'Resume' : 'Pause'}"
+            ${!canPause ? 'disabled' : ''}>${paused ? '▶' : '⏸'}</button>
+          <button class="icon-btn danger" data-action="cancel"
+            title="Cancel" ${!canCancel ? 'disabled' : ''}>✕</button>
+          <button class="icon-btn" data-action="open_folder"
+            title="Open save folder" ${queued ? 'disabled' : ''}>📂</button>
+          <button class="icon-btn danger" data-action="remove" title="Remove">🗑</button>
+        </div>
+      </div>
+      ${progressHtml}
+      <button class="log-toggle" style="display:none">▶ Show log</button>
+      <div class="log-body"></div>`;
+    return;
   }
 
-  // Preserve existing log lines content
-  const existingLog = card.querySelector('.log-body');
-  const logHtml = existingLog ? existingLog.innerHTML : '';
-  const logOpen = existingLog?.classList.contains('open') ? ' open' : '';
-  const logHasContent = !!logHtml;
-  const logToggleDisplay = logHasContent ? '' : 'display:none';
+  // Subsequent updates — targeted DOM mutations only, never touch log section
+  const badge = card.querySelector('.card-badge');
+  if (badge) { badge.className = `card-badge ${badgeCls}`; badge.textContent = st; }
 
-  card.innerHTML = `
-    <div class="card-header">
-      <div class="card-icon">${esc(item.source_icon || '↓')}</div>
-      <div class="card-meta">
-        <div class="card-title" title="${esc(item.title || item.url || '')}">${esc(item.title || item.url || 'Loading…')}</div>
-        <div class="card-sub">
-          <span class="card-badge ${badgeCls}">${st}</span>
-          ${sub ? `<span>${esc(sub)}</span>` : ''}
+  const titleEl = card.querySelector('.card-title');
+  if (titleEl && item.title) {
+    titleEl.textContent = item.title || item.url || '…';
+    titleEl.title = item.title || item.url || '';
+  }
+
+  const subTxt = card.querySelector('.card-sub-txt');
+  if (subTxt) subTxt.textContent = sub;
+
+  const errEl = card.querySelector('.card-error');
+  if (errEl) {
+    errEl.style.display = st === 'Error' ? '' : 'none';
+    errEl.textContent   = item.error_msg || '';
+    errEl.title         = item.error_msg || '';
+  }
+
+  // Progress row — create if missing, remove if done
+  let progRow = card.querySelector('.progress-row');
+  if (done && !item.progress) {
+    progRow?.remove();
+    card.querySelector('.speed-row')?.remove();
+  } else {
+    if (!progRow) {
+      const frag = document.createElement('div');
+      frag.innerHTML = `
+        <div class="progress-row">
+          <div class="progress-track"><div class="progress-fill" style="width:0%"></div></div>
+          <span class="progress-pct">0%</span>
         </div>
-        ${item.state === 'Error' ? `<div class="card-error" title="${esc(item.error_msg || '')}">${esc(item.error_msg || '')}</div>` : ''}
-      </div>
-      <div class="card-actions">
-        <button class="icon-btn" data-action="${paused ? 'resume' : 'pause'}"
-          title="${paused ? 'Resume' : 'Pause'}"
-          ${!canPause ? 'disabled' : ''}>${paused ? '▶' : '⏸'}</button>
-        <button class="icon-btn danger" data-action="cancel"
-          title="Cancel" ${!canCancel ? 'disabled' : ''}>✕</button>
-        <button class="icon-btn" data-action="open_folder"
-          title="Open save folder" ${queued ? 'disabled' : ''}>📂</button>
-        <button class="icon-btn danger" data-action="remove" title="Remove">🗑</button>
-      </div>
-    </div>
-    ${progressHtml}
-    <button class="log-toggle" style="${logToggleDisplay}">▶ Show log</button>
-    <div class="log-body${logOpen}">${logHtml}</div>`;
+        <div class="speed-row">
+          <span class="spd"></span><span class="eta-txt"></span><span class="sz"></span>
+        </div>`;
+      const toggle = card.querySelector('.log-toggle');
+      card.insertBefore(frag.children[0], toggle);
+      card.insertBefore(frag.children[0], toggle);
+      progRow = card.querySelector('.progress-row');
+    }
+    const fill = progRow?.querySelector('.progress-fill');
+    if (fill) {
+      fill.style.width = `${pct}%`;
+      fill.classList.toggle('active', active);
+    }
+    const pctEl = progRow?.querySelector('.progress-pct');
+    if (pctEl) pctEl.textContent = `${pct.toFixed(0)}%`;
+    const sr = card.querySelector('.speed-row');
+    if (sr) {
+      const spd = sr.querySelector('.spd');   if (spd)  spd.textContent  = item.speed || '';
+      const eta = sr.querySelector('.eta-txt'); if (eta) eta.textContent = item.eta   || '';
+      const sz  = sr.querySelector('.sz');    if (sz)   sz.textContent   = item.size  || '';
+    }
+  }
+
+  // Button states
+  const [btnPause, btnCancel, btnFolder] = card.querySelectorAll('[data-action]');
+  if (btnPause) {
+    btnPause.dataset.action = paused ? 'resume' : 'pause';
+    btnPause.title          = paused ? 'Resume' : 'Pause';
+    btnPause.textContent    = paused ? '▶' : '⏸';
+    btnPause.disabled       = !canPause;
+  }
+  if (btnCancel) btnCancel.disabled = !canCancel;
+  if (btnFolder) btnFolder.disabled = !!queued;
 }
 
 function onCardClick(e) {

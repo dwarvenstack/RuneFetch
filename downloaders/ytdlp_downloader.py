@@ -26,6 +26,11 @@ def _ilog(item, text: str, colour: str = COL_NORMAL):
 
 
 def _build_format(item) -> str:
+    # Twitter/X photo URLs have no video stream; use 'best' so yt-dlp picks the image.
+    url_lower = item.url.lower()
+    if "/photo/" in url_lower and ("twitter.com" in url_lower or "x.com" in url_lower):
+        return "best"
+
     fmt = item.fmt
 
     # If the dialog already stored a yt-dlp selector string, use it directly
@@ -168,6 +173,7 @@ def download_ytdlp(item, progress_cb):
         "postprocessors":               _build_postprocessors(item),
         "writethumbnail":               False,
         "noplaylist":                   False,
+        "yes_playlist":                 getattr(item, "is_playlist", False),
         "quiet":                        True,
         "no_warnings":                  True,
         "concurrent_fragment_downloads": getattr(item, "fragment_threads", 4),
@@ -233,6 +239,9 @@ def download_ytdlp(item, progress_cb):
         msg = str(exc)
         if "Cancelled by user" in msg:
             _log.info("yt-dlp cancelled  url=%s", item.url[:60])
+        elif "No video could be found" in msg:
+            # Let router.py surface a user-friendly message; no need to double-log here.
+            raise
         else:
             _log.error("yt-dlp DownloadError: %s", msg)
             raise

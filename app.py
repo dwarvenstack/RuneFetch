@@ -189,6 +189,26 @@ class Api:
     def get_version(self) -> str:
         return "2.0.0"
 
+    def read_clipboard(self) -> str:
+        """Read plain text from the system clipboard (called from JS Paste button)."""
+        try:
+            if sys.platform == "win32":
+                import subprocess
+                result = subprocess.check_output(
+                    ["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
+                    timeout=3, text=True, stderr=subprocess.DEVNULL,
+                    creationflags=0x08000000,  # CREATE_NO_WINDOW
+                )
+                return result.strip()
+            else:
+                import subprocess
+                # macOS
+                result = subprocess.check_output(["pbpaste"], timeout=3, text=True)
+                return result.strip()
+        except Exception as exc:
+            _log.debug("read_clipboard: %s", exc)
+        return ""
+
     def check_file_exists(self, save_path: str, title: str) -> dict:
         """Check whether a file matching `title` already exists in `save_path`."""
         try:
@@ -237,15 +257,29 @@ def _force_foreground(win_title: str = "RuneFetch", webview_window=None):
         if attached:
             u32.AttachThreadInput(our_tid, fg_tid, False)
 
-        # 4. Force WebView2 repaint — it suspends compositing while hidden
-        #    Invalidate the whole HWND tree so Windows sends WM_PAINT
+        # 4. Force WebView2 compositor to wake up.
+        #    InvalidateRect alone doesn't reach DirectComposition.
+        #    WM_SIZE forces WebView2 to resize its compositor surface → resumes render.
+        #    SetWindowPos with SWP_FRAMECHANGED triggers full window recomposition.
+        WM_SIZE       = 0x0005
+        SWP_NOMOVE    = 0x0002
+        SWP_NOSIZE    = 0x0001
+        SWP_FRAMECHANGED = 0x0020
+        rect = ctypes.wintypes.RECT()
+        u32.GetClientRect(hwnd, ctypes.byref(rect))
+        cw = rect.right  - rect.left
+        ch = rect.bottom - rect.top
+        u32.PostMessageW(hwnd, WM_SIZE, 0, (ch << 16) | (cw & 0xFFFF))
+        u32.SetWindowPos(hwnd, None, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED)
+        # Also invalidate for good measure
         u32.InvalidateRect(hwnd, None, True)
         u32.UpdateWindow(hwnd)
 
-        # 5. Nudge layout from JS side (runs async; fine after short delay)
+        # 5. Nudge layout from JS side after WebView2 has had time to resume
         if webview_window:
             def _nudge():
-                import time; time.sleep(0.12)
+                import time; time.sleep(0.4)
                 try:
                     webview_window.evaluate_js(
                         'window.dispatchEvent(new Event("resize"))'
@@ -416,8 +450,22 @@ def _restore_queue(engine, cfg: dict):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+def _base_dir() -> Path:
+    """Return the resource root — sys._MEIPASS when frozen, else repo root."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+    return Path(__file__).parent
+
+
 def main():
     _setup_logging()
+
+    # First-run: check for ffmpeg and offer auto-download before window opens
+    try:
+        from core.first_run import run as first_run
+        first_run()
+    except Exception as exc:
+        _log.warning("First-run check failed (non-fatal): %s", exc)
 
     import webview
 
@@ -492,7 +540,7 @@ def main():
     _start_clipboard_monitor(engine, cfg, ui_server)
 
     # pywebview window
-    webui_path = Path(__file__).parent / "webui" / "index.html"
+    webui_path = _base_dir() / "webui" / "index.html"
     window_ref = []
 
     api = Api(window_ref, cfg)

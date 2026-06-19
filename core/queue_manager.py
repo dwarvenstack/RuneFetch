@@ -91,7 +91,7 @@ class QueueManager:
     def add(self, url: str, title: str, source_label: str, source_icon: str,
             fmt: str, quality: str, save_path: str, dl_type: str,
             fragment_threads: int = 4, proxy: str = "",
-            start_paused: bool = False) -> str:
+            start_paused: bool = False, is_playlist: bool = False) -> str:
         item_id = uuid.uuid4().hex[:8]
         item = DownloadItem(
             id=item_id, url=url, title=title,
@@ -101,6 +101,7 @@ class QueueManager:
             throttle_kbps=self.throttle_kbps,
             proxy=proxy,
         )
+        item.is_playlist = is_playlist
         if start_paused:
             item.state = STATE_PAUSED
             item.pause_event.clear()

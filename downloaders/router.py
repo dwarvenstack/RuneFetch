@@ -52,7 +52,22 @@ def run_download(item, progress_cb):
 
     if t in (TYPE_YOUTUBE, TYPE_YTDLP):
         from downloaders.ytdlp_downloader import download_ytdlp
-        download_ytdlp(item, progress_cb)
+        try:
+            download_ytdlp(item, progress_cb)
+        except Exception as exc:
+            msg = str(exc)
+            # Twitter/X image tweets produce "No video could be found".
+            # yt-dlp cannot download Twitter images via status URLs;
+            # the user needs to append /photo/1 to get the direct image URL.
+            if "No video could be found" in msg and (
+                "twitter.com" in item.url or "x.com" in item.url
+            ):
+                raise Exception(
+                    "This tweet has no downloadable video.\n"
+                    "If it contains an image, open the tweet, click the image, "
+                    "and copy the URL ending in /photo/1 — then paste that instead."
+                ) from exc
+            raise
 
     elif t == TYPE_SPOTIFY:
         from downloaders.spotdl_downloader import download_spotify

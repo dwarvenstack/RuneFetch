@@ -110,6 +110,13 @@ node_modules/
 package-lock.json
 yarn.lock
 
+# ── Packaging / installer (build-machine only, never commit) ─
+RuneFetch_Setup.iss
+build_exe.bat
+README.txt
+hooks/
+rthooks/
+
 # ── Misc ─────────────────────────────────────────────────────
 *.bak
 *.orig

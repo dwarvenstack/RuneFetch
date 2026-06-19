@@ -2,7 +2,7 @@
 # Install with:  pip install -r requirements.txt
 # Python 3.10+ required; 3.11 or 3.12 recommended.
 
-# Web UI framework (Path B — new default entry point: app.py)
+# Web UI framework
 pywebview>=5.0
 pystray>=0.19
 pyperclip>=1.8.2      # optional: clipboard monitor feature
@@ -20,6 +20,3 @@ Pillow>=10.3.0
 beautifulsoup4>=4.12.0
 mutagen>=1.47.0
 tldextract>=5.1.0
-
-# Legacy Qt UI (optional — only needed if running main.py instead of app.py)
-# PyQt6>=6.6.0

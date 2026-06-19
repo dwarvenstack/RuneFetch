@@ -113,6 +113,7 @@ class EngineFacade:
                                  self._cfg.get("fragment_threads", 4)),
             proxy=opts.get("proxy") or self._cfg.get("proxy", ""),
             start_paused=bool(opts.get("start_paused", False)),
+            is_playlist=bool(opts.get("is_playlist", False)),
         )
         return item_id
 

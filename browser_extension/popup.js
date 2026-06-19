@@ -162,10 +162,36 @@ chipChk.addEventListener("change", async () => {
 $("btn-scan").addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) return;
-  chrome.tabs.sendMessage(tab.id, { type: "RF_SCAN_PAGE" }, () => {
-    if (chrome.runtime.lastError) showMsg("Could not reach page", true);
+
+  const doScan = () => {
+    chrome.tabs.sendMessage(tab.id, { type: "RF_SCAN_PAGE" }, () => {
+      if (chrome.runtime.lastError) {
+        showMsg("Could not reach page — refresh the tab and try again", true);
+        return;
+      }
+      window.close();
+    });
+  };
+
+  // Try sending directly first
+  chrome.tabs.sendMessage(tab.id, { type: "RF_PING" }, resp => {
+    if (!chrome.runtime.lastError && resp) {
+      // Content script already present
+      doScan();
+    } else {
+      // Not injected yet — inject on demand then retry
+      chrome.scripting.executeScript(
+        { target: { tabId: tab.id }, files: ["content.js"] },
+        () => {
+          if (chrome.runtime.lastError) {
+            showMsg("Cannot inject into this page — try a normal webpage", true);
+            return;
+          }
+          setTimeout(doScan, 200);
+        }
+      );
+    }
   });
-  window.close();
 });
 
 // Stop polling when popup closes (avoids orphaned intervals)

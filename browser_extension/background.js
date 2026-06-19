@@ -16,6 +16,7 @@ let reconnectTimer = null;
 let token = "";
 let port = DEFAULT_PORT;
 let isConnected = false;
+let pendingQueue = [];   // URLs queued while WS is not yet open (max 20)
 
 // ── Storage ───────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,11 @@ function connect() {
     clearTimeout(reconnectTimer);
     // Ping to verify token and get app info
     send({ action: "ping" });
+    // Drain any URLs that arrived before connection was ready
+    const queued = pendingQueue.splice(0);
+    for (const payload of queued) {
+      ws.send(JSON.stringify({ token, ...payload }));
+    }
   };
 
   ws.onmessage = (evt) => {
@@ -84,8 +90,21 @@ function scheduleReconnect() {
 }
 
 function send(payload) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
-  if (!token) return false;
+  if (!token) {
+    // Token not yet loaded (service worker just woke). Queue URL payloads so
+    // they're sent once loadConfig() + connect() + ws.onopen complete.
+    if (payload.url) {
+      pendingQueue = [...pendingQueue.slice(-19), payload];
+    }
+    return false;
+  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    // Queue URL sends for when WS opens; drop pings/control messages
+    if (payload.url) {
+      pendingQueue = [...pendingQueue.slice(-19), payload];  // keep last 20
+    }
+    return false;
+  }
   ws.send(JSON.stringify({ token, ...payload }));
   return true;
 }
@@ -141,6 +160,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "RF_SET_TOKEN") {
     token = msg.token;
     port  = msg.port || DEFAULT_PORT;
+    pendingQueue = [];   // stale URLs shouldn't replay with new token
     chrome.storage.local.set({ rf_token: token, rf_port: port });
     ws && ws.close();   // reconnect with new credentials
     connect();
@@ -151,13 +171,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 
-(async () => {
+async function init() {
   await loadConfig();
   connect();
-})();
+  // If any URL arrived before the token was loaded (service worker wake race),
+  // it's sitting in pendingQueue. connect() will drain it once ws.onopen fires.
+  // If WS was already open (token just refreshed), drain immediately.
+  if (token && ws && ws.readyState === WebSocket.OPEN && pendingQueue.length) {
+    const queued = pendingQueue.splice(0);
+    for (const payload of queued) {
+      ws.send(JSON.stringify({ token, ...payload }));
+    }
+  }
+}
+
+(async () => { await init(); })();
 
 // Reconnect when service worker wakes from suspension
-chrome.runtime.onStartup.addListener(async () => {
-  await loadConfig();
-  connect();
-});
+chrome.runtime.onStartup.addListener(() => init());
