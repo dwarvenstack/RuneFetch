@@ -58,6 +58,7 @@ const $ = id => document.getElementById(id);
   setupSettingsForm();
   setupConfirmModal();
   setupExistsModal();
+  setupUpdates();
 
   ws.on('_connected',     onConnected);
   ws.on('_disconnected',  onDisconnected);
@@ -72,6 +73,13 @@ const $ = id => document.getElementById(id);
   ws.on('bridge_url',     onBridgeUrl);
 
   await ws.init();
+
+  // Automatic update check, a few seconds after startup so it never competes
+  // with restoring the queue or the first paint. The backend throttles this to
+  // once a day, so a frequently-restarted app does not hammer the API.
+  setTimeout(() => {
+    if (S.settings.auto_check_updates !== false) checkForUpdate(false);
+  }, 4000);
 })();
 
 // ── Navigation ────────────────────────────────────────────────────────────────
@@ -672,6 +680,7 @@ function renderSettings() {
   set('setting-clipboard',        s.clipboard_monitor);
   set('setting-close-to-tray',    s.close_to_tray !== false);
   set('setting-theme',            s.theme || 'dark');
+  set('setting-auto-update',      s.auto_check_updates !== false);
 }
 
 function setupSettingsForm() {
@@ -709,12 +718,165 @@ function setupSettingsForm() {
       clipboard_monitor: !!g('setting-clipboard'),
       close_to_tray:     !!g('setting-close-to-tray'),
       theme:             g('setting-theme') || 'dark',
+      auto_check_updates: !!g('setting-auto-update'),
     };
     try {
       await ws.send('save_settings', { settings: patch });
       toast('Settings saved', 'info');
     } catch (err) { toast('Save failed: ' + err.message, 'error'); }
   });
+}
+
+// ── Updates ───────────────────────────────────────────────────────────────────
+
+// Holds the last check result so the Update button knows what to download.
+let _pendingUpdate = null;
+
+function setupUpdates() {
+  // Show the running version immediately — it comes from the native API, so it
+  // is correct even when GitHub is unreachable.
+  window.pywebview?.api?.get_version?.()
+    .then(v => {
+      $('current-version').textContent = v;
+      $('update-status').textContent   = `RuneFetch ${v}`;
+    })
+    .catch(() => {});
+
+  $('btn-check-update').addEventListener('click', () => checkForUpdate(true));
+  $('btn-close-update').addEventListener('click', () => $('update-modal').close());
+  $('btn-update-later').addEventListener('click', () => $('update-modal').close());
+  $('btn-update-now').addEventListener('click', startUpdate);
+
+  ws.on('update_progress', d => {
+    const mb = b => (b / 1048576).toFixed(1);
+    if (d.percent < 0) {
+      // Server could not determine the total size — show bytes only, and keep
+      // the bar visibly busy rather than parked at 0%.
+      $('update-bar-fill').style.width = '100%';
+      $('update-bar-fill').classList.add('indeterminate');
+      $('update-progress-text').textContent = `Downloading… ${mb(d.done)} MB`;
+    } else {
+      $('update-bar-fill').classList.remove('indeterminate');
+      $('update-bar-fill').style.width = `${d.percent}%`;
+      $('update-progress-text').textContent =
+        `Downloading… ${d.percent}%  (${mb(d.done)} / ${mb(d.total)} MB)`;
+    }
+  });
+
+  ws.on('update_ready', () => {
+    $('update-progress-text').textContent = 'Installing — RuneFetch will restart…';
+    $('update-bar-fill').style.width = '100%';
+  });
+
+  ws.on('update_failed', d => {
+    $('update-progress').style.display = 'none';
+    $('btn-update-now').disabled = false;
+    $('btn-update-later').disabled = false;
+    toast('Update failed: ' + (d.error || 'unknown error'), 'error');
+  });
+}
+
+/** Ask the backend to check GitHub. `manual` shows "up to date" feedback. */
+async function checkForUpdate(manual = false) {
+  const statusEl = $('update-status');
+  if (manual) statusEl.textContent = 'Checking…';
+
+  let info;
+  try {
+    const res = await ws.send('check_update', { force: manual });
+    info = res.update || {};
+  } catch (err) {
+    if (manual) {
+      statusEl.textContent = 'Check failed';
+      toast('Update check failed: ' + err.message, 'error');
+    }
+    return;
+  }
+
+  $('current-version').textContent = info.current || '—';
+
+  if (info.available) {
+    _pendingUpdate = info;
+    statusEl.innerHTML =
+      `RuneFetch ${info.current} — <strong>v${info.version} available</strong>`;
+    markUpdateBadge(true);
+    showUpdateModal(info);
+    return;
+  }
+
+  markUpdateBadge(false);
+
+  if (!manual) return;   // silent when it was the automatic startup check
+
+  // Distinguish "no newer version" from "could not reach GitHub" — telling a
+  // user they are up to date when the check actually failed is misleading.
+  if (info.error === 'network') {
+    statusEl.textContent = `RuneFetch ${info.current} — could not reach GitHub`;
+    toast('Could not check for updates — you appear to be offline', 'warn');
+  } else if (info.error === 'no_releases') {
+    statusEl.textContent = `RuneFetch ${info.current} — no releases published yet`;
+  } else if (info.error && info.error !== 'skipped_recent_check') {
+    statusEl.textContent = `RuneFetch ${info.current} — check failed`;
+    toast('Update check failed (' + info.error + ')', 'warn');
+  } else {
+    statusEl.textContent = `RuneFetch ${info.current} — up to date`;
+    toast('You are on the latest version', 'info');
+  }
+}
+
+function showUpdateModal(info) {
+  $('update-version').textContent = `Version ${info.version}  ·  you have ${info.current}`;
+  $('update-notes').textContent   = info.notes || '';
+  $('update-progress').style.display = 'none';
+  $('update-bar-fill').style.width   = '0%';
+  $('btn-update-now').disabled   = false;
+  $('btn-update-later').disabled = false;
+
+  // No downloadable asset (or running from source) — send them to the page.
+  $('btn-update-now').textContent = info.asset_url ? 'Update & restart' : 'Open download page';
+
+  $('update-modal').showModal();
+}
+
+async function startUpdate() {
+  if (!_pendingUpdate) return;
+
+  if (!_pendingUpdate.asset_url) {
+    ws.fire('open_releases_page');
+    $('update-modal').close();
+    return;
+  }
+
+  $('btn-update-now').disabled   = true;
+  $('btn-update-later').disabled = true;
+  $('update-progress').style.display = 'block';
+  $('update-progress-text').textContent = 'Starting download…';
+
+  try {
+    await ws.send('install_update', {
+      asset_url:  _pendingUpdate.asset_url,
+      asset_size: _pendingUpdate.asset_size || 0,
+    });
+  } catch (err) {
+    $('btn-update-now').disabled   = false;
+    $('btn-update-later').disabled = false;
+    $('update-progress').style.display = 'none';
+    toast('Update failed: ' + err.message, 'error');
+  }
+}
+
+/** Small dot on the Settings nav button so the update is discoverable. */
+function markUpdateBadge(show) {
+  const btn = document.querySelector('.nav-btn[data-view="settings"]');
+  if (!btn) return;
+  const existing = btn.querySelector('.update-dot');
+  if (show && !existing) {
+    const dot = document.createElement('span');
+    dot.className = 'update-dot';
+    btn.appendChild(dot);
+  } else if (!show && existing) {
+    existing.remove();
+  }
 }
 
 // ── WS event handlers ─────────────────────────────────────────────────────────

@@ -156,10 +156,11 @@ class LocalBridge:
 
         # Ping / capability probe from extension
         if msg.get("action") == "ping":
+            from core.version import __version__
             return {
                 "ok": True,
                 "app":     "RuneFetch",
-                "version": "1.0.0",
+                "version": __version__,
                 "port":    self.port,
             }
 
