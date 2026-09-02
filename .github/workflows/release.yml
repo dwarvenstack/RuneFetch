@@ -1,0 +1,84 @@
+name: Release
+
+# Builds a standalone Windows executable and publishes it to a GitHub Release.
+# This is the shipping half of the pipeline: users get a binary with its
+# dependencies frozen inside, so a change to the system Python can never strip
+# their install the way it stripped the dev machine.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v2.0.1)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows executable
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Verify before building
+        # Never ship a binary whose sources do not even import.
+        run: |
+          python ci/check_imports.py
+          python ci/check_modules.py
+
+      - name: Record the exact dependency set
+        # Shipped with the release so any user-reported bug can be reproduced
+        # against the versions the binary was actually built from.
+        run: pip freeze > requirements-lock.txt
+
+      - name: Build with PyInstaller
+        run: >
+          pyinstaller --noconfirm --clean --windowed --onedir
+          --name RuneFetch
+          --icon assets/runefetch_icon.png
+          --add-data "webui;webui"
+          --add-data "assets;assets"
+          --collect-all webview
+          --collect-all spotdl
+          --hidden-import pystray._win32
+          app.py
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Copy-Item requirements-lock.txt dist/RuneFetch/
+          Copy-Item README.md dist/RuneFetch/
+          Copy-Item LICENSE dist/RuneFetch/
+          Compress-Archive -Path dist/RuneFetch/* -DestinationPath RuneFetch-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RuneFetch-windows
+          path: RuneFetch-windows.zip
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          draft: true          # review the notes before it goes public
+          generate_release_notes: true
+          files: |
+            RuneFetch-windows.zip
+            requirements-lock.txt

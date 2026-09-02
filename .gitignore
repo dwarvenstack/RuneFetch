@@ -38,9 +38,10 @@ htmlcov/
 nosetests.xml
 coverage.xml
 
-# ── IDEs ─────────────────────────────────────────────────────
+# ── IDEs / local agent tooling ───────────────────────────────
 .vscode/
 .idea/
+.claude/
 *.sublime-project
 *.sublime-workspace
 *.code-workspace
