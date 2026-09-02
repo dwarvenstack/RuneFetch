@@ -31,6 +31,8 @@ DEFAULTS = {
     "ui_port":              8770,
     "clipboard_monitor":    False,   # auto-detect URLs copied to clipboard
     "close_to_tray":        True,    # X button minimises to tray
+    "auto_check_updates":   True,    # ask GitHub for a newer release on startup
+    "last_update_check":    0,       # epoch seconds; throttles the startup check
 }
 
 

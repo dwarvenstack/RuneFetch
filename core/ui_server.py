@@ -149,7 +149,8 @@ class UIServer:
         try:
             # ── Ping ──────────────────────────────────────────────────────
             if action == "ping":
-                return {"ok": True, "app": "RuneFetch", "version": "2.0.0"}
+                from core.version import __version__
+                return {"ok": True, "app": "RuneFetch", "version": __version__}
 
             # ── Snapshot ──────────────────────────────────────────────────
             if action == "snapshot":
@@ -285,6 +286,32 @@ class UIServer:
             if action == "get_settings":
                 return {"ok": True, "settings": self._safe_cfg()}
 
+            # ── Updates ───────────────────────────────────────────────────
+            if action == "check_update":
+                from core import updater
+                # Network call — keep it off the event loop.
+                force = bool(msg.get("force", True))
+                info = await asyncio.get_event_loop().run_in_executor(
+                    self._executor, updater.check_for_update, force, self.cfg
+                )
+                if self.cfg.get("last_update_check"):
+                    from utils.settings import save
+                    save(self.cfg)
+                return {"ok": True, "update": info}
+
+            if action == "install_update":
+                asset_url = msg.get("asset_url", "")
+                if not asset_url:
+                    return {"ok": False, "error": "no_asset_url"}
+                size = int(msg.get("asset_size") or 0)
+                asyncio.ensure_future(self._install_update_async(asset_url, size))
+                return {"ok": True, "started": True}
+
+            if action == "open_releases_page":
+                from core import updater
+                updater.open_releases_page()
+                return {"ok": True}
+
             return {"ok": False, "error": f"unknown_action:{action}"}
 
         except Exception as exc:
@@ -312,6 +339,65 @@ class UIServer:
                          "error": str(exc)},
             }
         await self._broadcast(payload)
+
+    # ── Update download / install ─────────────────────────────────────────────
+
+    async def _install_update_async(self, asset_url: str, expected_size: int = 0):
+        """
+        Download the update, then hand off to the installer and quit.
+
+        Progress is broadcast as update_progress events so the UI can show a
+        bar; the app keeps running normally until the download completes, so a
+        failure here leaves the user exactly where they were.
+        """
+        from core import updater
+
+        loop = asyncio.get_event_loop()
+
+        def _progress(pct, done, total):
+            # Called from the worker thread — hop back onto the loop to send.
+            asyncio.run_coroutine_threadsafe(
+                self._broadcast({
+                    "event": "update_progress",
+                    "data": {"percent": round(pct, 1), "done": done, "total": total},
+                }), loop,
+            )
+
+        try:
+            path = await loop.run_in_executor(
+                self._executor, updater.download_update,
+                asset_url, _progress, expected_size,
+            )
+        except Exception as exc:
+            _log.error("Update download failed: %s", exc)
+            await self._broadcast({
+                "event": "update_failed",
+                "data": {"error": str(exc)},
+            })
+            return
+
+        await self._broadcast({
+            "event": "update_ready", "data": {"path": path},
+        })
+        # Let the UI paint "Restarting…" before the process disappears.
+        await asyncio.sleep(1.0)
+
+        def _on_quit():
+            try:
+                from core.queue_persistence import save_queue
+                save_queue(self.engine._qm.get_items())
+            except Exception as exc:
+                _log.warning("Could not save queue before update: %s", exc)
+
+        ok = await loop.run_in_executor(
+            self._executor, updater.install_and_restart, path, _on_quit
+        )
+        if not ok:
+            await self._broadcast({
+                "event": "update_failed",
+                "data": {"error": "Could not launch the installer. "
+                                  "The downloaded file has been revealed instead."},
+            })
 
     # ── Broadcaster ───────────────────────────────────────────────────────────
 

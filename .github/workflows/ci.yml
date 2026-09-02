@@ -61,6 +61,9 @@ jobs:
       - name: Smoke test — websocket layer
         run: python ci/smoke_ws.py
 
+      - name: Smoke test — update system
+        run: python ci/smoke_update.py
+
   download:
     name: Live download test
     runs-on: windows-latest

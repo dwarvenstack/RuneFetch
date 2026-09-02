@@ -243,6 +243,27 @@
             </div>
           </div>
 
+          <div class="settings-block">
+            <h3>Updates</h3>
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Check for updates automatically</div>
+                <div class="setting-hint">Asks GitHub for a newer release once a day</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="setting-auto-update" checked>
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Version</div>
+                <div class="setting-hint" id="update-status">RuneFetch <span id="current-version">—</span></div>
+              </div>
+              <button type="button" class="btn-sm" id="btn-check-update">Check now</button>
+            </div>
+          </div>
+
           <button type="submit" class="btn-save">Save Settings</button>
         </form>
       </section>
@@ -308,6 +329,24 @@
   <div class="exists-footer">
     <button type="button" class="btn-modal btn-cancel-modal" id="btn-exists-open">Open folder</button>
     <button type="button" class="btn-modal btn-download" id="btn-exists-redownload">Download again</button>
+  </div>
+</dialog>
+
+<!-- ── Update available modal ─────────────────────────────────────────────── -->
+<dialog id="update-modal">
+  <div class="confirm-body">
+    <button class="modal-close" id="btn-close-update" title="Close">✕</button>
+    <div class="confirm-title">Update available</div>
+    <div class="update-version" id="update-version"></div>
+    <div class="update-notes" id="update-notes"></div>
+    <div class="update-progress" id="update-progress" style="display:none">
+      <div class="update-bar"><div class="update-bar-fill" id="update-bar-fill"></div></div>
+      <div class="update-progress-text" id="update-progress-text">Starting…</div>
+    </div>
+  </div>
+  <div class="confirm-footer">
+    <button type="button" class="btn-modal btn-cancel-modal" id="btn-update-later">Later</button>
+    <button type="button" class="btn-modal btn-download" id="btn-update-now">Update &amp; restart</button>
   </div>
 </dialog>
 

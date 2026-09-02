@@ -187,7 +187,8 @@ class Api:
         }
 
     def get_version(self) -> str:
-        return "2.0.0"
+        from core.version import __version__
+        return __version__
 
     def read_clipboard(self) -> str:
         """Read plain text from the system clipboard (called from JS Paste button)."""
