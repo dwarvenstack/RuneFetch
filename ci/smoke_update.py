@@ -147,6 +147,8 @@ def check_live_api():
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     failures = []
     print("── Version source ──")
     failures += check_version_source()

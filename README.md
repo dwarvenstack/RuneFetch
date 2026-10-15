@@ -119,6 +119,19 @@ Stored at `~/.runefetch/config.json`. All options exposed in the Settings panel.
 
 ---
 
+## Windows release builds
+
+Install Inno Setup 6, run `./setup.ps1`, then install the build tool with
+`.\.venv\Scripts\python.exe -m pip install pyinstaller`.
+Run `./packaging/build.ps1` to validate the project and build the version in
+`VERSION`. The installer and its SHA-256 checksum are written to `dist_installer/`.
+The installer upgrades an existing per-user installation using the same AppId.
+The browser extension is included in the installation's `browser_extension/` folder.
+
+For automatic update detection, publish a GitHub release with a version greater
+than the installed app's version and attach the `RuneFetch-Setup-X.Y.Z.exe` asset.
+Changing the file on an older release does not trigger a version update.
+
 ## Licence
 
 MIT — see [LICENSE](LICENSE)

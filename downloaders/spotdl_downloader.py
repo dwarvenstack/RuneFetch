@@ -35,8 +35,8 @@ def download_spotify(item, progress_cb):
 
     proxy = getattr(item, "proxy", "") or ""
 
-    cmd = [
-        sys.executable, "-m", "spotdl",
+    cmd = ([sys.executable, "--spotdl-worker"] if getattr(sys, "frozen", False)
+           else [sys.executable, "-m", "spotdl"]) + [
         "--output",  os.path.join(save_dir, "{title} - {artists}.{output-ext}"),
         "--format",  "mp3",
         "--bitrate", "320k",

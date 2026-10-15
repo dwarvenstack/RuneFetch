@@ -576,4 +576,20 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--spotdl-worker" in sys.argv:
+        # A frozen executable is not a Python interpreter: dispatch explicitly.
+        sys.argv.remove("--spotdl-worker")
+        if sys.platform == "win32" and getattr(sys, "frozen", False):
+            import ctypes
+            import msvcrt
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.GetStdHandle.restype = ctypes.c_void_p
+            for name, handle_id in (("stdout", -11), ("stderr", -12)):
+                handle = kernel.GetStdHandle(handle_id)
+                if handle and handle != ctypes.c_void_p(-1).value:
+                    fd = msvcrt.open_osfhandle(handle, os.O_WRONLY)
+                    setattr(sys, name, os.fdopen(fd, "w", encoding="utf-8", buffering=1))
+        from spotdl.console.entry_point import console_entry_point
+        console_entry_point()
+    else:
+        main()
