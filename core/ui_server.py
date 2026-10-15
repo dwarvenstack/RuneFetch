@@ -42,6 +42,7 @@ class UIServer:
         self._thread: threading.Thread | None = None
         self._loop:   asyncio.AbstractEventLoop | None = None
         self._started = False
+        self._stop_event = None
         self._executor = ThreadPoolExecutor(max_workers=4,
                                             thread_name_prefix="rf-ui-fmt")
 
@@ -55,8 +56,10 @@ class UIServer:
         self._thread.start()
 
     def stop(self):
-        if self._loop and self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._loop and self._loop.is_running() and self._stop_event:
+            self._loop.call_soon_threadsafe(self._stop_event.set)
+        if self._thread and self._thread is not threading.current_thread():
+            self._thread.join(timeout=5)
         self._executor.shutdown(wait=False)
 
     @property
@@ -75,6 +78,7 @@ class UIServer:
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         self._clients_lock = asyncio.Lock()
+        self._stop_event = asyncio.Event()
         try:
             self._loop.run_until_complete(self._serve())
         except Exception as e:
@@ -91,9 +95,10 @@ class UIServer:
             _log.info("UI server listening on %s", self.ws_url)
             broadcaster = asyncio.create_task(self._broadcast_loop())
             try:
-                await asyncio.Future()
+                await self._stop_event.wait()
             finally:
                 broadcaster.cancel()
+                await asyncio.gather(broadcaster, return_exceptions=True)
 
     # ── Per-connection handler ────────────────────────────────────────────────
 

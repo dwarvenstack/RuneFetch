@@ -66,6 +66,7 @@ class LocalBridge:
         self._thread: threading.Thread | None = None
         self._loop:   asyncio.AbstractEventLoop | None = None
         self._started = False
+        self._stop_event = None
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -79,8 +80,10 @@ class LocalBridge:
         self._thread.start()
 
     def stop(self):
-        if self._loop and self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._loop and self._loop.is_running() and self._stop_event:
+            self._loop.call_soon_threadsafe(self._stop_event.set)
+        if self._thread and self._thread is not threading.current_thread():
+            self._thread.join(timeout=5)
 
     @property
     def ws_url(self) -> str:
@@ -100,6 +103,7 @@ class LocalBridge:
 
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
+        self._stop_event = asyncio.Event()
         try:
             self._loop.run_until_complete(self._serve())
         except Exception as e:
@@ -117,7 +121,7 @@ class LocalBridge:
             max_size=2 ** 18,   # 256 KB — more than enough for a URL message
         ):
             _log.info("RuneFetch bridge listening on %s", self.ws_url)
-            await asyncio.Future()   # run until loop is stopped
+            await self._stop_event.wait()
 
     async def _handler(self, websocket):
         """Handle one persistent WebSocket connection (extension background page)."""

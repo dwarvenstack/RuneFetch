@@ -62,7 +62,9 @@ jobs:
         run: python ci/smoke_ws.py
 
       - name: Smoke test — update system
-        run: python ci/smoke_update.py
+        run: |
+          python ci/smoke_update.py
+          python ci/test_update_download.py
 
   download:
     name: Live download test

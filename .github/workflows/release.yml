@@ -24,6 +24,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -39,11 +41,13 @@ jobs:
         # VERSION means the shipped app reports exactly what was tagged, so its
         # update check compares against the right number.
         id: version
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         shell: pwsh
         run: |
-          $tag = "${{ github.event.inputs.tag || github.ref_name }}"
+          $tag = $env:RELEASE_TAG
           $version = $tag -replace '^v', ''
-          if ($version -notmatch '^\d+\.\d+\.\d+') {
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
             throw "Tag '$tag' is not a semver version (expected e.g. v2.1.0)"
           }
           Set-Content VERSION $version -NoNewline
@@ -63,7 +67,9 @@ jobs:
         run: |
           python ci/check_imports.py
           python ci/check_modules.py
+          python ci/smoke_ws.py
           python ci/smoke_update.py
+          python ci/test_update_download.py
 
       - name: Record the exact dependency set
         # Shipped with the release so any user-reported bug can be reproduced
@@ -81,8 +87,12 @@ jobs:
           --add-data "VERSION;."
           --collect-all webview
           --collect-all spotdl
+          --collect-data pykakasi
           --hidden-import pystray._win32
           app.py
+
+      - name: Verify packaged Spotify worker
+        run: python ci/check_bundle.py
 
       - name: Package portable zip
         shell: pwsh
@@ -90,6 +100,7 @@ jobs:
           Copy-Item requirements-lock.txt dist/RuneFetch/
           Copy-Item README.md dist/RuneFetch/
           Copy-Item LICENSE dist/RuneFetch/
+          Copy-Item browser_extension dist/RuneFetch/browser_extension -Recurse
           Compress-Archive -Path dist/RuneFetch/* -DestinationPath RuneFetch-windows.zip
 
       - name: Build installer
@@ -111,7 +122,25 @@ jobs:
             RuneFetch-windows.zip
             dist_installer/*.exe
 
+      - name: Check whether release is already published
+        id: release_state
+        uses: actions/github-script@v7
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        with:
+          script: |
+            try {
+              const { data } = await github.rest.repos.getReleaseByTag({
+                ...context.repo, tag: process.env.RELEASE_TAG
+              });
+              core.setOutput('published', String(!data.draft));
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              core.setOutput('published', 'false');
+            }
+
       - name: Publish release
+        if: steps.release_state.outputs.published != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}

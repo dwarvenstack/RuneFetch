@@ -173,6 +173,8 @@ def download_update(asset_url: str, progress_cb=None, expected_size: int = 0) ->
                     # indeterminate bar rather than showing a bogus percentage.
                     pct = (done * 100.0 / total) if total else -1
                     progress_cb(pct, done, total)
+            if total and done != total:
+                raise RuntimeError(f"Incomplete update download: expected {total} bytes, received {done}")
     except Exception:
         # Never leave a partial installer behind — it could be run later.
         try:
