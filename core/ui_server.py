@@ -474,7 +474,8 @@ def _fetch_formats_sync(url: str, proxy: str) -> tuple[list, str]:
     opts = {"quiet": True, "no_warnings": True, "skip_download": True}
     if proxy:
         opts["proxy"] = proxy
-    with yt_dlp.YoutubeDL(opts) as ydl:
+    from downloaders.hianime import create_ytdlp
+    with create_ytdlp(opts, url) as ydl:
         info    = ydl.extract_info(url, download=False)
         formats = info.get("formats") or []
         title   = info.get("title", "")

@@ -196,13 +196,14 @@ def download_ytdlp(item, progress_cb):
     if rate_limit:
         ydl_opts["ratelimit"] = rate_limit
 
+    from downloaders.hianime import create_ytdlp
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with create_ytdlp(ydl_opts, item.url) as ydl:
             flat_opts = dict(ydl_opts)
             flat_opts["extract_flat"] = "in_playlist"
             flat_opts["quiet"] = True
             try:
-                with yt_dlp.YoutubeDL(flat_opts) as flat_ydl:
+                with create_ytdlp(flat_opts, item.url) as flat_ydl:
                     info = flat_ydl.extract_info(item.url, download=False)
                 if info:
                     entries = info.get("entries")

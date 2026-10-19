@@ -399,7 +399,8 @@ function onFormatsReady(data) {
   const seen = new Set(); const opts = [];
   for (const f of [...formats].reverse()) {
     const h = f.height;
-    if (!h || !f.vcodec || f.vcodec.toLowerCase() === 'none' || seen.has(h)) continue;
+    // Some HLS manifests provide resolution without codec metadata.
+    if (!h || f.vcodec?.toLowerCase() === 'none' || seen.has(h)) continue;
     seen.add(h);
     const res = h === 2160 ? '4K · 2160p' : h === 1440 ? '2K · 1440p' : `${h}p`;
     const sz  = f.filesize || f.filesize_approx;
