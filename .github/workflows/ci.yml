@@ -1,0 +1,95 @@
+name: CI
+
+# Catches the failure class that broke RuneFetch in Aug 2026: the app itself was
+# fine, but the environment it ran in stopped having its dependencies. A build on
+# a clean runner reproduces that condition on every push.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # yt-dlp breaks when sites change, not when we push. Check Mondays 06:00 UTC
+    # so a silent extractor regression surfaces before a user hits it.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & smoke test (py${{ matrix.python }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install ffmpeg
+        run: choco install ffmpeg -y --no-progress
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Show resolved versions
+        # Printed on every run so a regression can be bisected against the exact
+        # dependency set that produced it.
+        run: pip freeze
+
+      - name: Import every runtime dependency
+        # The direct check for what actually broke: can a clean interpreter
+        # import everything app.py needs at startup?
+        run: python ci/check_imports.py
+
+      - name: Import all project modules
+        run: python ci/check_modules.py
+
+      - name: Run regression suite
+        run: python -m unittest discover -s ci -p "test_*.py"
+
+      - name: Smoke test — websocket layer
+        run: python ci/smoke_ws.py
+
+      - name: Smoke test — update system
+        run: python ci/smoke_update.py
+
+  download:
+    name: Live download test
+    runs-on: windows-latest
+    # Hits real YouTube, so it is allowed to fail without blocking a merge —
+    # a red mark here means "yt-dlp/site drift", not "this PR is broken".
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install ffmpeg
+        run: choco install ffmpeg -y --no-progress
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download a real video through the router
+        run: python ci/smoke_download.py

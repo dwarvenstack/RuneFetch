@@ -1,0 +1,84 @@
+name: Update dependencies
+
+# yt-dlp ships fixes constantly because sites keep changing, and a stale copy is
+# the single most common reason a download starts failing. This opens a PR with
+# a refreshed floor for yt-dlp, but only after a real download has proven the
+# new version works — so the PR arrives pre-verified rather than as a guess.
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"   # Mondays 05:00 UTC, before the weekly CI run
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install ffmpeg
+        run: choco install ffmpeg -y --no-progress
+
+      - name: Install latest dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade -r requirements.txt
+
+      - name: Verify the new versions actually work
+        run: |
+          python ci/check_imports.py
+          python ci/check_modules.py
+          python ci/smoke_ws.py
+          python ci/smoke_download.py
+
+      - name: Bump the yt-dlp floor in requirements.txt
+        id: bump
+        shell: pwsh
+        run: |
+          $installed = (python -c "import yt_dlp; print(yt_dlp.version.__version__)").Trim()
+          $req = Get-Content requirements.txt -Raw
+          $current = [regex]::Match($req, 'yt-dlp>=([0-9.]+)').Groups[1].Value
+
+          if ($current -eq $installed) {
+            Write-Host "yt-dlp already at $installed — nothing to do."
+            "changed=false" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "yt-dlp $current -> $installed"
+            $req = $req -replace 'yt-dlp>=[0-9.]+', "yt-dlp>=$installed"
+            Set-Content requirements.txt $req -NoNewline
+            "changed=true"          >> $env:GITHUB_OUTPUT
+            "old=$current"          >> $env:GITHUB_OUTPUT
+            "new=$installed"        >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Open pull request
+        if: steps.bump.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: deps/yt-dlp-${{ steps.bump.outputs.new }}
+          commit-message: "deps: bump yt-dlp to ${{ steps.bump.outputs.new }}"
+          title: "deps: bump yt-dlp to ${{ steps.bump.outputs.new }}"
+          body: |
+            Automated dependency refresh.
+
+            **yt-dlp** `${{ steps.bump.outputs.old }}` → `${{ steps.bump.outputs.new }}`
+
+            Verified on this runner before the PR was opened:
+
+            - all runtime dependencies import
+            - all project modules import
+            - WebSocket layer (UI + bridge, auth and origin checks) passes
+            - a real video downloaded end to end through the router
+
+            Merging keeps the requirements floor ahead of site changes that
+            break older yt-dlp releases.
+          delete-branch: true

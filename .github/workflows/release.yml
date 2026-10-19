@@ -1,0 +1,168 @@
+name: Release
+
+# Builds a standalone Windows executable and publishes it to a GitHub Release.
+# This is the shipping half of the pipeline: users get a binary with its
+# dependencies frozen inside, so a change to the system Python can never strip
+# their install the way it stripped the dev machine.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v2.0.1)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows executable
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Inno Setup
+        run: choco install innosetup ffmpeg -y --no-progress
+
+      - name: Resolve version from the tag
+        # The tag is the single source of truth for a release. Writing it into
+        # VERSION means the shipped app reports exactly what was tagged, so its
+        # update check compares against the right number.
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        shell: pwsh
+        run: |
+          $tag = $env:RELEASE_TAG
+          $version = $tag -replace '^v', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Tag '$tag' is not a semver version (expected e.g. v2.1.0)"
+          }
+          Set-Content VERSION $version -NoNewline
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Building version $version"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Verify before building
+        # Never ship a binary whose sources do not even import. smoke_update
+        # runs after VERSION was rewritten from the tag, so it also confirms the
+        # binary will report the version it was actually tagged with.
+        run: |
+          foreach ($check in @('check_imports', 'check_modules', 'smoke_ws', 'smoke_update')) {
+            python "ci/$check.py"
+            if ($LASTEXITCODE -ne 0) { throw "$check failed" }
+          }
+          python -m unittest discover -s ci -p "test_*.py"
+          if ($LASTEXITCODE -ne 0) { throw "Regression suite failed" }
+
+      - name: Record the exact dependency set
+        # Shipped with the release so any user-reported bug can be reproduced
+        # against the versions the binary was actually built from.
+        run: pip freeze > requirements-lock.txt
+
+      - name: Build with PyInstaller
+        # VERSION is bundled so core/version.py can read it from sys._MEIPASS.
+        run: >
+          pyinstaller --noconfirm --clean --windowed --onedir
+          --name RuneFetch
+          --icon assets/runefetch_icon.png
+          --add-data "webui;webui"
+          --add-data "assets;assets"
+          --add-data "VERSION;."
+          --collect-all webview
+          --collect-all spotdl
+          --collect-data pykakasi
+          --hidden-import pystray._win32
+          app.py
+
+      - name: Verify packaged Spotify worker
+        run: |
+          python ci/check_bundle.py
+          if ($LASTEXITCODE -ne 0) { throw "Packaged Spotify worker failed" }
+          python ci/smoke_bundle.py
+          if ($LASTEXITCODE -ne 0) { throw "Packaged startup failed" }
+
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          Copy-Item requirements-lock.txt dist/RuneFetch/
+          Copy-Item README.md dist/RuneFetch/
+          Copy-Item LICENSE dist/RuneFetch/
+          Copy-Item browser_extension dist/RuneFetch/browser_extension -Recurse
+          Compress-Archive -Path dist/RuneFetch/* -DestinationPath RuneFetch-windows.zip
+
+      - name: Build installer
+        # The installer is what the in-app updater downloads and runs; the zip
+        # is kept as a portable fallback for users who prefer no install.
+        shell: pwsh
+        run: |
+          # PyInstaller needs a .ico for the setup icon; generate one from the PNG.
+          python -c "from PIL import Image; Image.open('assets/runefetch_icon.png').save('assets/runefetch_icon.ico', sizes=[(16,16),(32,32),(48,48),(256,256)])"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+              /DMyAppVersion=${{ steps.version.outputs.version }} `
+              packaging\RuneFetch.iss
+          Get-ChildItem dist_installer
+          if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
+          $installer = "dist_installer/RuneFetch-Setup-${{ steps.version.outputs.version }}.exe"
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path $installer -Leaf)" | Set-Content "$installer.sha256" -Encoding ascii
+
+      - name: Verify installer extraction and reinstall
+        shell: pwsh
+        # Keep this deterministic; the separate CI live-download job reports site restrictions.
+        run: ./ci/smoke_installer.ps1 -SkipLiveDownload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RuneFetch-windows
+          path: |
+            RuneFetch-windows.zip
+            dist_installer/*.exe
+            dist_installer/*.sha256
+
+      - name: Check whether release is already published
+        id: release_state
+        uses: actions/github-script@v7
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        with:
+          script: |
+            try {
+              const { data } = await github.rest.repos.getReleaseByTag({
+                ...context.repo, tag: process.env.RELEASE_TAG
+              });
+              core.setOutput('published', String(!data.draft));
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              core.setOutput('published', 'false');
+            }
+
+      - name: Publish release
+        if: steps.release_state.outputs.published != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          draft: true          # review the notes before it goes public
+          generate_release_notes: true
+          files: |
+            dist_installer/RuneFetch-Setup-${{ steps.version.outputs.version }}.exe
+            dist_installer/RuneFetch-Setup-${{ steps.version.outputs.version }}.exe.sha256
+            RuneFetch-windows.zip
+            requirements-lock.txt

@@ -26,6 +26,8 @@ class WsClient {
     try {
       const tokens = await window.pywebview.api.get_tokens();
       this._token = tokens.ui_token || '';
+      const port = Number(tokens.ui_port);
+      if (Number.isInteger(port) && port > 0 && port <= 65535) this._port = port;
     } catch (e) {
       console.warn('[ws] pywebview not ready, retrying…');
       await _sleep(300);

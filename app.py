@@ -76,6 +76,11 @@ class Api:
     def _window(self):
         return self._win[0] if self._win else None
 
+    def open_project_page(self) -> bool:
+        """Open the publisher page in the user's default browser."""
+        import webbrowser
+        return webbrowser.open("https://github.com/dwarvenstack", new=2)
+
     # ── Window movement (called on every mousemove while dragging titlebar) ──
 
     def move_window(self, x: int, y: int):
@@ -182,12 +187,14 @@ class Api:
 
     def get_tokens(self) -> dict:
         return {
+            "ui_port": self._cfg.get("ui_port", 8770),
             "ui_token":     self._cfg.get("ui_token", ""),
             "bridge_token": self._cfg.get("bridge_token", ""),
         }
 
     def get_version(self) -> str:
-        return "2.0.0"
+        from core.version import __version__
+        return __version__
 
     def read_clipboard(self) -> str:
         """Read plain text from the system clipboard (called from JS Paste button)."""
@@ -533,7 +540,7 @@ def main():
 
     # UI WebSocket server
     from core.ui_server import UIServer
-    ui_server = UIServer(engine=engine, cfg=cfg)
+    ui_server = UIServer(engine=engine, cfg=cfg, port=cfg.get("ui_port", 8770))
     ui_server.start()
 
     # Clipboard monitor
@@ -575,4 +582,20 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--spotdl-worker" in sys.argv:
+        # A frozen executable is not a Python interpreter: dispatch explicitly.
+        sys.argv.remove("--spotdl-worker")
+        if sys.platform == "win32" and getattr(sys, "frozen", False):
+            import ctypes
+            import msvcrt
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.GetStdHandle.restype = ctypes.c_void_p
+            for name, handle_id in (("stdout", -11), ("stderr", -12)):
+                handle = kernel.GetStdHandle(handle_id)
+                if handle and handle != ctypes.c_void_p(-1).value:
+                    fd = msvcrt.open_osfhandle(handle, os.O_WRONLY)
+                    setattr(sys, name, os.fdopen(fd, "w", encoding="utf-8", buffering=1))
+        from spotdl.console.entry_point import console_entry_point
+        console_entry_point()
+    else:
+        main()

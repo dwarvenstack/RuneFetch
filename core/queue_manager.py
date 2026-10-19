@@ -77,13 +77,13 @@ class QueueManager:
     """
 
     def __init__(self, max_concurrent: int = 2, throttle_kbps: int = 0):
-        self.max_concurrent = max_concurrent
+        self.max_concurrent = max(1, max_concurrent)
         self.throttle_kbps  = throttle_kbps   # 0 = unlimited
 
         self._items: dict[str, DownloadItem] = {}
         self._order: list[str] = []
         self._lock  = threading.Lock()
-        self._sem   = threading.Semaphore(max_concurrent)
+        self._running: set[str] = set()
         self._event_queue: q_module.Queue = q_module.Queue()
 
     # ── Public API ───────────────────────────────────────────────────────────
@@ -165,9 +165,8 @@ class QueueManager:
 
     def set_concurrency(self, n: int):
         """Adjust max concurrent downloads. Takes effect for new slots."""
-        self.max_concurrent = max(1, n)
-        # Recreate semaphore conservatively
-        self._sem = threading.Semaphore(self.max_concurrent)
+        with self._lock:
+            self.max_concurrent = max(1, n)
         self._dispatch_next()
 
     def set_throttle(self, kbps: int):
@@ -185,29 +184,24 @@ class QueueManager:
     def _dispatch_next(self):
         """Start worker threads for all QUEUED items up to concurrency limit."""
         with self._lock:
+            slots = max(0, self.max_concurrent - len(self._running))
             queued = [
                 self._items[i] for i in self._order
                 if i in self._items and self._items[i].state == STATE_QUEUED
-            ]
+                and i not in self._running
+            ][:slots]
+            # Reserve jobs under the same lock used to count available slots.
+            # Waiting jobs have no worker until a slot actually becomes free.
+            for item in queued:
+                self._running.add(item.id)
+                item._thread = threading.Thread(
+                    target=self._run, args=(item,), daemon=True,
+                    name=f"rf-dl-{item.id}",
+                )
         for item in queued:
-            t = threading.Thread(
-                target=self._run,
-                args=(item,),
-                daemon=True,
-                name=f"rf-dl-{item.id}",
-            )
-            item._thread = t
-            t.start()
+            item._thread.start()
 
     def _run(self, item: DownloadItem):
-        # Block until a concurrency slot is free
-        acquired = self._sem.acquire(timeout=3600)
-        if not acquired:
-            item.state = STATE_ERROR
-            item.error_msg = "Timed out waiting for a download slot."
-            self._notify(item.id)
-            return
-
         try:
             if item.cancel_event.is_set():
                 return
@@ -232,7 +226,8 @@ class QueueManager:
                 item.error_msg = str(exc)
                 _log.error("[%s] Download error  %s  —  %s", item.id[:8], item.url[:60], exc)
         finally:
-            self._sem.release()
+            with self._lock:
+                self._running.discard(item.id)
             self._notify(item.id)
             self._dispatch_next()
 

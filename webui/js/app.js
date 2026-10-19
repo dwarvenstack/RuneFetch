@@ -45,6 +45,7 @@ const S = {
 // ── DOM ───────────────────────────────────────────────────────────────────────
 
 const $ = id => document.getElementById(id);
+const uiIcon = name => `<svg class="ui-icon" aria-hidden="true"><use href="#icon-${name}"/></svg>`;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,7 @@ const $ = id => document.getElementById(id);
   setupSettingsForm();
   setupConfirmModal();
   setupExistsModal();
+  setupUpdates();
 
   ws.on('_connected',     onConnected);
   ws.on('_disconnected',  onDisconnected);
@@ -72,11 +74,28 @@ const $ = id => document.getElementById(id);
   ws.on('bridge_url',     onBridgeUrl);
 
   await ws.init();
+
+  // Automatic update check, a few seconds after startup so it never competes
+  // with restoring the queue or the first paint. The backend throttles this to
+  // once a day, so a frequently-restarted app does not hammer the API.
+  setTimeout(() => {
+    if (S.settings.auto_check_updates !== false) checkForUpdate(false);
+  }, 4000);
 })();
 
 // ── Navigation ────────────────────────────────────────────────────────────────
 
 function setupNav() {
+  $('dwarvenstack-link').addEventListener('click', async e => {
+    if (!window.pywebview?.api?.open_project_page) return;
+    e.preventDefault();
+    try {
+      const opened = await window.pywebview.api.open_project_page();
+      if (!opened) toast('Could not open your browser. Visit github.com/dwarvenstack.', 'warn');
+    } catch {
+      toast('Could not open your browser. Visit github.com/dwarvenstack.', 'warn');
+    }
+  });
   document.querySelectorAll('.nav-btn[data-view]').forEach(btn => {
     btn.addEventListener('click', () => switchView(btn.dataset.view));
   });
@@ -572,7 +591,7 @@ function buildHistCard(item) {
   const sub = [item.source_label, fmt, item.size, item.date].filter(Boolean).join('  ·  ');
 
   card.innerHTML = `
-    <span class="hist-icon">${esc(item.source_icon || '↓')}</span>
+    <span class="hist-icon">${uiIcon('file')}</span>
     <div class="hist-meta">
       <div class="hist-title" title="${esc(item.title || item.url || '')}">${esc(item.title || item.url || '—')}</div>
       <div class="hist-sub">
@@ -582,13 +601,13 @@ function buildHistCard(item) {
     </div>
     <div class="hist-actions">
       <button class="icon-btn" data-hist-action="redownload" title="Re-download">↺</button>
-      <button class="icon-btn danger" data-hist-action="delete" title="Delete entry">🗑</button>
+      <button class="icon-btn danger" data-hist-action="delete" title="Delete entry" aria-label="Delete entry">${uiIcon('trash')}</button>
     </div>`;
 
   // Select on click (anywhere except action buttons)
   card.addEventListener('click', e => {
     if (e.target.closest('[data-hist-action]')) return;
-    card.style.background = card.style.background ? '' : 'rgba(227,166,90,0.10)';
+    card.classList.toggle('is-selected', !S.selectedHistIds.has(item.id));
     if (S.selectedHistIds.has(item.id)) S.selectedHistIds.delete(item.id);
     else S.selectedHistIds.add(item.id);
     $('btn-history-delete-sel').disabled = S.selectedHistIds.size === 0;
@@ -672,6 +691,7 @@ function renderSettings() {
   set('setting-clipboard',        s.clipboard_monitor);
   set('setting-close-to-tray',    s.close_to_tray !== false);
   set('setting-theme',            s.theme || 'dark');
+  set('setting-auto-update',      s.auto_check_updates !== false);
 }
 
 function setupSettingsForm() {
@@ -709,12 +729,165 @@ function setupSettingsForm() {
       clipboard_monitor: !!g('setting-clipboard'),
       close_to_tray:     !!g('setting-close-to-tray'),
       theme:             g('setting-theme') || 'dark',
+      auto_check_updates: !!g('setting-auto-update'),
     };
     try {
       await ws.send('save_settings', { settings: patch });
       toast('Settings saved', 'info');
     } catch (err) { toast('Save failed: ' + err.message, 'error'); }
   });
+}
+
+// ── Updates ───────────────────────────────────────────────────────────────────
+
+// Holds the last check result so the Update button knows what to download.
+let _pendingUpdate = null;
+
+function setupUpdates() {
+  // Show the running version immediately — it comes from the native API, so it
+  // is correct even when GitHub is unreachable.
+  window.pywebview?.api?.get_version?.()
+    .then(v => {
+      $('current-version').textContent = v;
+      $('update-status').textContent   = `RuneFetch ${v}`;
+    })
+    .catch(() => {});
+
+  $('btn-check-update').addEventListener('click', () => checkForUpdate(true));
+  $('btn-close-update').addEventListener('click', () => $('update-modal').close());
+  $('btn-update-later').addEventListener('click', () => $('update-modal').close());
+  $('btn-update-now').addEventListener('click', startUpdate);
+
+  ws.on('update_progress', d => {
+    const mb = b => (b / 1048576).toFixed(1);
+    if (d.percent < 0) {
+      // Server could not determine the total size — show bytes only, and keep
+      // the bar visibly busy rather than parked at 0%.
+      $('update-bar-fill').style.width = '100%';
+      $('update-bar-fill').classList.add('indeterminate');
+      $('update-progress-text').textContent = `Downloading… ${mb(d.done)} MB`;
+    } else {
+      $('update-bar-fill').classList.remove('indeterminate');
+      $('update-bar-fill').style.width = `${d.percent}%`;
+      $('update-progress-text').textContent =
+        `Downloading… ${d.percent}%  (${mb(d.done)} / ${mb(d.total)} MB)`;
+    }
+  });
+
+  ws.on('update_ready', () => {
+    $('update-progress-text').textContent = 'Installing — RuneFetch will restart…';
+    $('update-bar-fill').style.width = '100%';
+  });
+
+  ws.on('update_failed', d => {
+    $('update-progress').style.display = 'none';
+    $('btn-update-now').disabled = false;
+    $('btn-update-later').disabled = false;
+    toast('Update failed: ' + (d.error || 'unknown error'), 'error');
+  });
+}
+
+/** Ask the backend to check GitHub. `manual` shows "up to date" feedback. */
+async function checkForUpdate(manual = false) {
+  const statusEl = $('update-status');
+  if (manual) statusEl.textContent = 'Checking…';
+
+  let info;
+  try {
+    const res = await ws.send('check_update', { force: manual });
+    info = res.update || {};
+  } catch (err) {
+    if (manual) {
+      statusEl.textContent = 'Check failed';
+      toast('Update check failed: ' + err.message, 'error');
+    }
+    return;
+  }
+
+  $('current-version').textContent = info.current || '—';
+
+  if (info.available) {
+    _pendingUpdate = info;
+    statusEl.innerHTML =
+      `RuneFetch ${info.current} — <strong>v${info.version} available</strong>`;
+    markUpdateBadge(true);
+    showUpdateModal(info);
+    return;
+  }
+
+  markUpdateBadge(false);
+
+  if (!manual) return;   // silent when it was the automatic startup check
+
+  // Distinguish "no newer version" from "could not reach GitHub" — telling a
+  // user they are up to date when the check actually failed is misleading.
+  if (info.error === 'network') {
+    statusEl.textContent = `RuneFetch ${info.current} — could not reach GitHub`;
+    toast('Could not check for updates — you appear to be offline', 'warn');
+  } else if (info.error === 'no_releases') {
+    statusEl.textContent = `RuneFetch ${info.current} — no releases published yet`;
+  } else if (info.error && info.error !== 'skipped_recent_check') {
+    statusEl.textContent = `RuneFetch ${info.current} — check failed`;
+    toast('Update check failed (' + info.error + ')', 'warn');
+  } else {
+    statusEl.textContent = `RuneFetch ${info.current} — up to date`;
+    toast('You are on the latest version', 'info');
+  }
+}
+
+function showUpdateModal(info) {
+  $('update-version').textContent = `Version ${info.version}  ·  you have ${info.current}`;
+  $('update-notes').textContent   = info.notes || '';
+  $('update-progress').style.display = 'none';
+  $('update-bar-fill').style.width   = '0%';
+  $('btn-update-now').disabled   = false;
+  $('btn-update-later').disabled = false;
+
+  // No downloadable asset (or running from source) — send them to the page.
+  $('btn-update-now').textContent = info.asset_url ? 'Update & restart' : 'Open download page';
+
+  $('update-modal').showModal();
+}
+
+async function startUpdate() {
+  if (!_pendingUpdate) return;
+
+  if (!_pendingUpdate.asset_url) {
+    ws.fire('open_releases_page');
+    $('update-modal').close();
+    return;
+  }
+
+  $('btn-update-now').disabled   = true;
+  $('btn-update-later').disabled = true;
+  $('update-progress').style.display = 'block';
+  $('update-progress-text').textContent = 'Starting download…';
+
+  try {
+    await ws.send('install_update', {
+      asset_url:  _pendingUpdate.asset_url,
+      asset_size: _pendingUpdate.asset_size || 0,
+    });
+  } catch (err) {
+    $('btn-update-now').disabled   = false;
+    $('btn-update-later').disabled = false;
+    $('update-progress').style.display = 'none';
+    toast('Update failed: ' + err.message, 'error');
+  }
+}
+
+/** Small dot on the Settings nav button so the update is discoverable. */
+function markUpdateBadge(show) {
+  const btn = document.querySelector('.nav-btn[data-view="settings"]');
+  if (!btn) return;
+  const existing = btn.querySelector('.update-dot');
+  if (show && !existing) {
+    const dot = document.createElement('span');
+    dot.className = 'update-dot';
+    btn.appendChild(dot);
+  } else if (!show && existing) {
+    existing.remove();
+  }
 }
 
 // ── WS event handlers ─────────────────────────────────────────────────────────
@@ -801,6 +974,7 @@ function upsertCard(item) {
   }
 
   const st       = item.state || 'Queued';
+  card.dataset.state = st;
   const badgeCls = BADGE_CLS[st] || 'badge-queued';
   const active   = st === 'Downloading';
   const paused   = st === 'Paused';
@@ -828,7 +1002,7 @@ function upsertCard(item) {
 
     card.innerHTML = `
       <div class="card-header">
-        <div class="card-icon">${esc(item.source_icon || '↓')}</div>
+        <div class="card-icon">${uiIcon('file')}</div>
         <div class="card-meta">
           <div class="card-title" title="${esc(item.title || item.url || '')}">${esc(item.title || item.url || 'Loading…')}</div>
           <div class="card-sub">
@@ -840,12 +1014,12 @@ function upsertCard(item) {
         <div class="card-actions">
           <button class="icon-btn" data-action="${paused ? 'resume' : 'pause'}"
             title="${paused ? 'Resume' : 'Pause'}"
-            ${!canPause ? 'disabled' : ''}>${paused ? '▶' : '⏸'}</button>
+            aria-label="${paused ? 'Resume' : 'Pause'}" ${!canPause ? 'disabled' : ''}>${uiIcon(paused ? 'play' : 'pause')}</button>
           <button class="icon-btn danger" data-action="cancel"
-            title="Cancel" ${!canCancel ? 'disabled' : ''}>✕</button>
+            title="Cancel" aria-label="Cancel" ${!canCancel ? 'disabled' : ''}>${uiIcon('close')}</button>
           <button class="icon-btn" data-action="open_folder"
-            title="Open save folder" ${queued ? 'disabled' : ''}>📂</button>
-          <button class="icon-btn danger" data-action="remove" title="Remove">🗑</button>
+            title="Open save folder" aria-label="Open save folder" ${queued ? 'disabled' : ''}>${uiIcon('folder')}</button>
+          <button class="icon-btn danger" data-action="remove" title="Remove" aria-label="Remove">${uiIcon('trash')}</button>
         </div>
       </div>
       ${progressHtml}
@@ -915,7 +1089,8 @@ function upsertCard(item) {
   if (btnPause) {
     btnPause.dataset.action = paused ? 'resume' : 'pause';
     btnPause.title          = paused ? 'Resume' : 'Pause';
-    btnPause.textContent    = paused ? '▶' : '⏸';
+    btnPause.innerHTML      = uiIcon(paused ? 'play' : 'pause');
+    btnPause.setAttribute('aria-label', paused ? 'Resume' : 'Pause');
     btnPause.disabled       = !canPause;
   }
   if (btnCancel) btnCancel.disabled = !canCancel;

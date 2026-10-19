@@ -19,6 +19,11 @@ ENV/
 # ── PyInstaller build artefacts ───────────────────────────────
 build/
 dist/
+dist_installer/
+build-output.log
+download-smoke.log
+installer-build.log
+assets/runefetch_icon.ico
 *.spec
 *.spec.bak
 
@@ -38,7 +43,7 @@ htmlcov/
 nosetests.xml
 coverage.xml
 
-# ── IDEs ─────────────────────────────────────────────────────
+# ── IDEs / local agent tooling ───────────────────────────────
 .vscode/
 .idea/
 *.sublime-project
