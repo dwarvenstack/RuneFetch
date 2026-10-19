@@ -120,7 +120,7 @@ class FilenameTests(unittest.TestCase):
     def test_path_containment_and_collisions(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
-            self.assertEqual(_contain(directory, str(root.parent / 'outside.txt')), str(root/'download.bin'))
+            self.assertEqual(pathlib.Path(_contain(directory, str(root.parent / 'outside.txt'))).resolve(), (root/'download.bin').resolve())
             (root/'file.txt').write_text('original')
             self.assertEqual(pathlib.Path(_unique_path(directory,'file.txt')).name, 'file (1).txt')
 

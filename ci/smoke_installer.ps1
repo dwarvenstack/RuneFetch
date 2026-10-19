@@ -1,4 +1,4 @@
-param([string]$Version = (Get-Content (Join-Path $PSScriptRoot '../VERSION') -Raw).Trim())
+param([string]$Version = (Get-Content (Join-Path $PSScriptRoot '../VERSION') -Raw).Trim(), [switch]$SkipLiveDownload)
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 Set-Location $root
@@ -42,7 +42,12 @@ Write-Output 'PASS: installer replaced a stale executable on reinstall'
 if ((RegistrationSnapshot) -ne $before) { throw 'Test install changed normal app registration' }
 Write-Output 'PASS: personal installation registration preserved'
 $python = Join-Path $root '.venv/Scripts/python.exe'
-& $python ci/smoke_bundle.py --exe $exe --download-url 'https://www.youtube.com/shorts/HysJ32YP0x0' --download-dir (Join-Path $root ('build/installed-download-' + (Get-Date -Format 'yyyyMMdd-HHmmss')))
+if ($SkipLiveDownload) {
+    & $python ci/smoke_bundle.py --exe $exe
+} else {
+    & $python ci/smoke_bundle.py --exe $exe --download-url 'https://www.youtube.com/shorts/HysJ32YP0x0' --download-dir (Join-Path $root ('build/installed-download-' + (Get-Date -Format 'yyyyMMdd-HHmmss')))
+}
 if ($LASTEXITCODE -ne 0) { throw 'Installed application verification failed' }
-@{version=$Version; installedPath=$target; verifiedFiles=$files.Count; registrationPreserved=$true; reinstallPassed=$true; installedDownloadPassed=$true} | ConvertTo-Json | Set-Content build/installer-test-result.json
-Write-Output 'PASS: installed application starts and completes a real download'
+@{version=$Version; installedPath=$target; verifiedFiles=$files.Count; registrationPreserved=$true; reinstallPassed=$true; installedDownloadPassed=(-not $SkipLiveDownload)} | ConvertTo-Json | Set-Content build/installer-test-result.json
+if ($SkipLiveDownload) { Write-Output 'PASS: installed application starts; live download skipped explicitly' }
+else { Write-Output 'PASS: installed application starts and completes a real download' }

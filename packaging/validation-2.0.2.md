@@ -45,6 +45,10 @@ any running personal installation.
 
 ## Remaining limits
 
+- YouTube rejected the GitHub-hosted runner with a bot-verification prompt.
+  The optional hosted live-download job therefore failed. Source, packaged
+  and installed-app downloads on the local Windows machine passed. This is
+  reported separately from the required Python regression and smoke checks.
 - The installer is unsigned.
 - Full Spotify track downloads, external proxy routing, arbitrary playlists,
   every supported site, and extension installation in each browser were not

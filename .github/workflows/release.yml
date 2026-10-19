@@ -126,7 +126,8 @@ jobs:
 
       - name: Verify installer extraction and reinstall
         shell: pwsh
-        run: ./ci/smoke_installer.ps1
+        # Keep this deterministic; the separate CI live-download job reports site restrictions.
+        run: ./ci/smoke_installer.ps1 -SkipLiveDownload
 
       - uses: actions/upload-artifact@v4
         with:
