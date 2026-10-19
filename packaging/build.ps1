@@ -16,9 +16,11 @@ foreach ($check in @('check_imports', 'check_modules', 'smoke_update', 'smoke_ws
 }
 
 if (-not $SkipBundle) {
+    & $python packaging/embed_ui.py
+    if ($LASTEXITCODE -ne 0) { throw 'Frontend embedding failed' }
     & $python -m PyInstaller --noconfirm --clean --windowed --onedir `
         --name RuneFetch --icon assets/runefetch_icon.png `
-        --add-data 'webui;webui' --add-data 'assets;assets' --add-data 'VERSION;.' `
+        --add-data 'assets;assets' --add-data 'VERSION;.' `
         --collect-all webview --collect-all spotdl --collect-data pykakasi `
         --hidden-import pystray._win32 app.py
     if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed' }

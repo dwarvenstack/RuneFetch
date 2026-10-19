@@ -748,7 +748,6 @@ function setupUpdates() {
   // is correct even when GitHub is unreachable.
   window.pywebview?.api?.get_version?.()
     .then(v => {
-      $('current-version').textContent = v;
       $('update-status').textContent   = `RuneFetch ${v}`;
     })
     .catch(() => {});
@@ -804,7 +803,9 @@ async function checkForUpdate(manual = false) {
     return;
   }
 
-  $('current-version').textContent = info.current || '—';
+  // The status label is replaced while checking, so its original version span
+  // no longer exists. Render the result directly into the persistent label.
+  if (!manual && info.error === 'skipped_recent_check') return;
 
   if (info.available) {
     _pendingUpdate = info;

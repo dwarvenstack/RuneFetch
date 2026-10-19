@@ -77,13 +77,15 @@ jobs:
         # against the versions the binary was actually built from.
         run: pip freeze > requirements-lock.txt
 
+      - name: Embed frontend
+        run: python packaging/embed_ui.py
+
       - name: Build with PyInstaller
         # VERSION is bundled so core/version.py can read it from sys._MEIPASS.
         run: >
           pyinstaller --noconfirm --clean --windowed --onedir
           --name RuneFetch
           --icon assets/runefetch_icon.png
-          --add-data "webui;webui"
           --add-data "assets;assets"
           --add-data "VERSION;."
           --collect-all webview

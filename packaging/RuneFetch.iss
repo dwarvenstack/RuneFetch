@@ -57,6 +57,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
+[InstallDelete]
+; Remove loose frontend files left by earlier versions during upgrade.
+Type: filesandordirs; Name: "{app}\_internal\webui"
+
 [Files]
 Source: "..\dist\RuneFetch\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 

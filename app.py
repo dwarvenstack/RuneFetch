@@ -547,14 +547,14 @@ def main():
     _start_clipboard_monitor(engine, cfg, ui_server)
 
     # pywebview window
-    webui_path = _base_dir() / "webui" / "index.html"
+    from core.ui_assets import window_content
     window_ref = []
 
     api = Api(window_ref, cfg)
 
     window = webview.create_window(
         title="RuneFetch",
-        url=str(webui_path),
+        **window_content(),
         js_api=api,
         width=1100,
         height=720,

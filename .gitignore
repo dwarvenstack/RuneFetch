@@ -127,3 +127,6 @@ rthooks/
 *.orig
 *.swp
 .DS_Store
+
+# Generated frontend is stored as bytecode in packaged builds.
+core/_embedded_ui.py
