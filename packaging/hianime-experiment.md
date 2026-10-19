@@ -31,3 +31,14 @@ To repeat a live download and full decode (requires ffmpeg and ffprobe):
 ```
 
 After review, merge this branch into `release/2.0.3`; to discard it, switch back to `release/2.0.3` and remove the experiment branch. The embedded frontend and updater fixes remain on the release branch either way.
+
+## Automatic discovery follow-up
+
+- Accepts pasted `hianime.<single suffix>` episode URLs after checking recognizable page markers; API requests use the pasted domain. A brand rename or multi-part suffix is not automatically inferred.
+- Discovers up to six unique HTTPS subtitled player links from the live server list instead of requiring a fixed player hostname.
+- Recognizes the existing public player configuration across hostnames, detects explicit HLS source URLs, and tries upstream yt-dlp extractors for other players.
+- Tries the next server when lookup or manifest extraction fails, retaining subtitled playback rather than silently switching to a dub.
+- Validates each explicit player/stream address before fetching. Limits player discovery and sets a ten-second socket timeout for this adapter.
+- Does not discover a new site address when the old domain disappears, execute unknown player scripts, bypass CAPTCHA/DRM, or switch servers mid-download. An unsupported player still needs an adapter update.
+- Added nine automated tests for host/domain changes, failed-server fallback, unsupported pages, public-network restrictions, standard HLS, generic extraction and bounded discovery.
+- Live Black Clover format lookup still returns 360p, 720p and 1080p.
