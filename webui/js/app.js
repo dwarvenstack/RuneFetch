@@ -387,10 +387,19 @@ function openQualityModal(det) {
     $('qual-title').textContent = 'Download episodes';
     $('qual-subtitle').textContent = series.title;
     $('series-title').textContent = `${series.count} episodes found`;
-    const one = $('series-scope').querySelector('[value="one"]');
-    one.disabled = !series.current_episode;
-    one.textContent = series.current_episode ? `This episode (${series.current_episode.number})` : 'Open an episode link to choose one';
-    $('series-scope').value = series.current_episode ? 'one' : 'all';
+    const options = [];
+    const all = document.createElement('option');
+    all.value = 'all';
+    all.textContent = `All episodes (${series.count})`;
+    options.push(all);
+    for (const episode of series.episodes) {
+      const option = document.createElement('option');
+      option.value = `episode:${episode.id}`;
+      option.textContent = `Episode ${episode.number}` + (episode.id === series.current_episode?.id ? ' (linked episode)' : '');
+      options.push(option);
+    }
+    $('series-scope').replaceChildren(...options);
+    $('series-scope').value = series.current_episode ? `episode:${series.current_episode.id}` : 'all';
     $('series-zip').checked = false;
     updateSeriesChoice();
     $('quality-modal').showModal();
@@ -423,6 +432,11 @@ function openQualityModal(det) {
   $('quality-modal').showModal();
 }
 
+function selectedSeriesEpisode(series) {
+  const value = $('series-scope').value;
+  return series.episodes.find(episode => value === `episode:${episode.id}`) || null;
+}
+
 function updateSeriesChoice() {
   const series = S.pendingDet?.series;
   if (!series) return;
@@ -436,9 +450,15 @@ function updateSeriesChoice() {
     $('qual-status').textContent = 'Quality applies to every episode; availability can vary.';
     showFallbackQualities();
   } else {
-    $('qual-status').textContent = 'Fetching this episode’s qualities…';
+    const episode = selectedSeriesEpisode(series);
+    if (!episode) {
+      S.selectedFmt = '';
+      $('btn-download').disabled = true;
+      return;
+    }
+    $('qual-status').textContent = `Fetching episode ${episode.number}’s qualities…`;
     S.pendingReqId = Math.random().toString(36).slice(2);
-    ws.fire('fetch_formats', { url: series.current_episode.url, request_id: S.pendingReqId, proxy: S.settings.proxy || '' });
+    ws.fire('fetch_formats', { url: episode.url, request_id: S.pendingReqId, proxy: S.settings.proxy || '' });
     showFallbackQualities();
   }
 }
@@ -518,12 +538,17 @@ function pickQuality(opt) {
 
 async function confirmDownload() {
   if (!S.pendingUrl || !S.selectedFmt) return;
-  $('quality-modal').close();
   const det = S.pendingDet || {};
   const startPaused = $('chk-download-later').checked;
   const series = det.series;
   const batch = series && $('series-scope').value === 'all';
-  const downloadUrl = series && !batch ? series.current_episode.url : S.pendingUrl;
+  const episode = series && !batch ? selectedSeriesEpisode(series) : null;
+  if (series && !batch && !episode) {
+    toast('Choose an episode first', 'warn');
+    return;
+  }
+  const downloadUrl = episode ? episode.url : S.pendingUrl;
+  $('quality-modal').close();
   try {
     await ws.send('add', {
       url: downloadUrl,

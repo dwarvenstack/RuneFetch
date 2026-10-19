@@ -2,7 +2,7 @@
 
 Implemented locally on `release/2.0.3`. Not published.
 
-Paste a HiAnime series page or episode link and choose Download. RuneFetch reads the actual episode entries, displays their count, and waits for a choice in the quality dialog. Episode links default to the linked episode; series pages default to all episodes.
+Paste a HiAnime series page or episode link and choose Download. RuneFetch reads the actual episode entries, displays their count, and waits for a choice in the quality dialog. The dropdown includes All episodes plus every discovered episode, so either link can select any individual episode. Episode links default to the linked episode; series pages default to all episodes. The linked episode is marked in the list.
 
 The **Create a ZIP archive** checkbox is unchecked by default and enabled for all-episode downloads. Unchecked saves numbered episode files in a series folder. Checked creates a ZIP64 archive after all episodes succeed and keeps the episode files. Videos are already compressed; ZIP mainly groups them and needs additional disk space.
 
@@ -14,7 +14,8 @@ Validation:
 - The linked episode resolves to 1080p through the actual format backend.
 - Native application UI checked for both links: series count, current/all defaults, unchecked ZIP default, ticking ZIP, storage note, and current-episode quality lookup.
 - 105 Python tests passed, including 23 series tests for discovery, batch validation, API queueing, ordered files, ZIP CRC/content, archive failures, cancellation and persisted settings.
-- 13 frontend tests passed, including six series-flow tests.
+- 16 frontend tests passed, including nine series-flow tests covering all episode choices, another selected episode, switching back to all, and invalid selections.
+- The native preview displayed all 64 episode choices; selecting episode 2 from an episode-1 link requested episode 2 formats.
 - Module import checks passed. Local builds and GitHub build/release workflows now run frontend tests too.
 - A complete live 64-episode series transfer was not run. Batch/archive tests use small deterministic files; earlier live single-episode downloads were validated separately.
 
