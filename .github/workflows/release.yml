@@ -33,6 +33,17 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run frontend regression tests
+        shell: pwsh
+        run: |
+          $tests = @(Get-ChildItem ci/test_*.cjs | ForEach-Object FullName)
+          node --test @tests
+          if ($LASTEXITCODE -ne 0) { throw "Frontend regression tests failed" }
+
       - name: Install Inno Setup
         run: choco install innosetup ffmpeg -y --no-progress
 

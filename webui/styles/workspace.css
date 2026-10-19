@@ -102,3 +102,11 @@ dialog { border: 1px solid var(--border); box-shadow: var(--shadow); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+#series-options { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+#series-options[hidden] { display: none; }
+#series-options label { display: block; margin: 12px 0 6px; font-size: 13px; }
+#series-options select { width: 100%; padding: 9px 10px; background: var(--sunken); color: var(--text); border: 1px solid var(--border); border-radius: 5px; }
+.series-note { margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-2); }
+
+#series-options .modal-later label { display: inline; margin: 0; }

@@ -303,6 +303,19 @@
     <button class="modal-close" id="btn-close-qual" title="Close">✕</button>
   </div>
   <div class="modal-body">
+    <section id="series-options" hidden aria-labelledby="series-title">
+      <div class="quality-status" id="series-title"></div>
+      <label for="series-scope">Episodes to download</label>
+      <select id="series-scope">
+        <option value="one">This episode</option>
+        <option value="all">All episodes</option>
+      </select>
+      <div class="modal-later">
+        <input type="checkbox" id="series-zip">
+        <label for="series-zip">Create a ZIP archive (keep episode files too)</label>
+      </div>
+      <p class="series-note" id="series-note">ZIP bundles the videos; it usually saves little space and needs room for both copies.</p>
+    </section>
     <div class="quality-status" id="qual-status"></div>
     <div id="qual-options"></div>
     <div class="modal-later">

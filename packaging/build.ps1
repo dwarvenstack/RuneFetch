@@ -8,6 +8,10 @@ if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'VERSION must be X.Y.Z' }
 $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
 if (-not (Test-Path $compiler)) { throw 'Install Inno Setup 6 first.' }
 
+$frontendTests = @(Get-ChildItem ci/test_*.cjs | ForEach-Object FullName)
+node --test @frontendTests
+if ($LASTEXITCODE -ne 0) { throw 'Frontend regression tests failed' }
+
 & $python -m unittest discover -s ci -p 'test_*.py'
 if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed' }
 foreach ($check in @('check_imports', 'check_modules', 'smoke_update', 'smoke_ws')) {

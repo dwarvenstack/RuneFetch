@@ -50,7 +50,11 @@ def run_download(item, progress_cb):
     # yt-dlp. Skipped automatically when a proxy is configured.
     _guard_url(item)
 
-    if t in (TYPE_YOUTUBE, TYPE_YTDLP):
+    if t == 'hianime_series':
+        from downloaders.hianime_series import download_series
+        download_series(item, progress_cb)
+
+    elif t in (TYPE_YOUTUBE, TYPE_YTDLP):
         from downloaders.ytdlp_downloader import download_ytdlp
         try:
             download_ytdlp(item, progress_cb)

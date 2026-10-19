@@ -45,6 +45,7 @@ def item_to_dict(it) -> dict:
         "quality":      it.quality,
         "dl_type":      it.dl_type,
         "save_path":    it.save_path,
+        "series":       getattr(it, "series", {}),
     }
 
 
@@ -101,6 +102,10 @@ class EngineFacade:
     # ── Queue operations ──────────────────────────────────────────────────────
 
     def add(self, url: str, opts: dict) -> str:
+        series = None
+        if opts.get('dl_type') == 'hianime_series':
+            from downloaders.hianime_series import validate_batch
+            series = validate_batch(url, opts.get('series'))
         item_id = self._qm.add(
             url=url,
             title=opts.get("title", ""),
@@ -115,6 +120,7 @@ class EngineFacade:
             proxy=opts.get("proxy") or self._cfg.get("proxy", ""),
             start_paused=bool(opts.get("start_paused", False)),
             is_playlist=bool(opts.get("is_playlist", False)),
+            series=series,
         )
         return item_id
 
@@ -189,7 +195,9 @@ class EngineFacade:
         # Normalise fmt label to match Qt history format
         fmt = entry.get("fmt", "")
         extension = Path(entry.get("title", "")).suffix.lstrip('.').upper()
-        if entry.get("dl_type") == "direct" and extension:
+        if entry.get('dl_type') == 'hianime_series' and entry.get('series', {}).get('zip'):
+            entry['fmt_display'] = 'ZIP'
+        elif entry.get("dl_type") == "direct" and extension:
             entry["fmt_display"] = extension
         elif "mp3" in fmt.lower() or ("audio" in fmt.lower() and "video" not in fmt.lower()):
             entry["fmt_display"] = "MP3"

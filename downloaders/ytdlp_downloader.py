@@ -156,7 +156,7 @@ def download_ytdlp(item, progress_cb):
         except Exception as exc:
             _log.error("Unexpected error in yt-dlp progress hook: %s", exc, exc_info=True)
 
-    outtmpl = os.path.join(save_dir, "%(title).80s.%(ext)s")
+    outtmpl = getattr(item, "output_template", None) or os.path.join(save_dir, "%(title).80s.%(ext)s")
 
     is_audio = _is_audio_only(item)
 

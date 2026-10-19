@@ -275,6 +275,23 @@ async function startDownload(urlOverride, detOverride) {
     return;
   }
 
+  if (det.series_capable) {
+    if (S.inspectingSeries) return;
+    S.inspectingSeries = true;
+    $('btn-add').disabled = true;
+    toast('Looking up the episode list…', 'info');
+    try {
+      const response = await ws.send('inspect_series', { url });
+      det = { ...det, series: response.series };
+    } catch (err) {
+      toast('Could not read the episode list: ' + err.message, 'error');
+      return;
+    } finally {
+      S.inspectingSeries = false;
+      $('btn-add').disabled = false;
+    }
+  }
+
   // prompt_per_file: ask for folder before quality
   let savePathOverride = '';
   if (S.settings.prompt_per_file) {
@@ -327,6 +344,8 @@ async function startDownload(urlOverride, detOverride) {
 // ── Audio-only quality modal (Spotify, SoundCloud, etc.) ─────────────────────
 
 function openAudioQualityModal(det) {
+  $('series-options').hidden = true;
+  $('btn-download').textContent = 'Download';
   $('qual-title').textContent    = 'Select Audio Quality';
   $('qual-subtitle').textContent = (det.batch_label || det.label || '').slice(0, 60);
   $('btn-download').disabled     = false;
@@ -347,17 +366,36 @@ function setupQualityModal() {
   $('btn-cancel-qual').addEventListener('click', () => dlg.close());
   $('btn-close-qual').addEventListener('click',  () => dlg.close());
   $('btn-download').addEventListener('click', confirmDownload);
+  $('series-scope').addEventListener('change', updateSeriesChoice);
+  $('series-zip').addEventListener('change', updateSeriesChoice);
   // Close on backdrop click
   dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
 }
 
 function openQualityModal(det) {
+  $('series-options').hidden = !det.series;
+  $('btn-download').textContent = 'Download';
   $('qual-title').textContent    = 'Select Quality';
   $('qual-subtitle').textContent = (det.batch_label || det.label || det.host || '').slice(0, 60);
   $('btn-download').disabled     = true;
   $('qual-options').innerHTML    = '';
   $('chk-download-later').checked = false;
   clearTimeout(S._qualTimeout);
+
+  if (det.series) {
+    const series = det.series;
+    $('qual-title').textContent = 'Download episodes';
+    $('qual-subtitle').textContent = series.title;
+    $('series-title').textContent = `${series.count} episodes found`;
+    const one = $('series-scope').querySelector('[value="one"]');
+    one.disabled = !series.current_episode;
+    one.textContent = series.current_episode ? `This episode (${series.current_episode.number})` : 'Open an episode link to choose one';
+    $('series-scope').value = series.current_episode ? 'one' : 'all';
+    $('series-zip').checked = false;
+    updateSeriesChoice();
+    $('quality-modal').showModal();
+    return;
+  }
 
   const needsFetch = (det.type === 'youtube' || det.type === 'ytdlp') && !det.is_playlist;
 
@@ -383,6 +421,26 @@ function openQualityModal(det) {
   }
 
   $('quality-modal').showModal();
+}
+
+function updateSeriesChoice() {
+  const series = S.pendingDet?.series;
+  if (!series) return;
+  const all = $('series-scope').value === 'all';
+  $('series-zip').disabled = !all;
+  $('series-note').hidden = !all || !$('series-zip').checked;
+  $('btn-download').textContent = all ? `Download ${series.count} episodes` : 'Download episode';
+  if (all) {
+    S.pendingReqId = '';
+    clearTimeout(S._qualTimeout);
+    $('qual-status').textContent = 'Quality applies to every episode; availability can vary.';
+    showFallbackQualities();
+  } else {
+    $('qual-status').textContent = 'Fetching this episode’s qualities…';
+    S.pendingReqId = Math.random().toString(36).slice(2);
+    ws.fire('fetch_formats', { url: series.current_episode.url, request_id: S.pendingReqId, proxy: S.settings.proxy || '' });
+    showFallbackQualities();
+  }
 }
 
 function onFormatsReady(data) {
@@ -463,16 +521,20 @@ async function confirmDownload() {
   $('quality-modal').close();
   const det = S.pendingDet || {};
   const startPaused = $('chk-download-later').checked;
+  const series = det.series;
+  const batch = series && $('series-scope').value === 'all';
+  const downloadUrl = series && !batch ? series.current_episode.url : S.pendingUrl;
   try {
     await ws.send('add', {
-      url: S.pendingUrl,
+      url: downloadUrl,
       opts: {
-        title:        '',
+        title:        batch ? series.title : '',
         source_label: det.label  || '',
         source_icon:  det.icon   || '',
         fmt:          S.selectedFmt,
         quality:      S.selectedQualLabel,
-        dl_type:      det.type   || 'ytdlp',
+        dl_type:      batch ? 'hianime_series' : (det.type || 'ytdlp'),
+        series:       batch ? { ...series, zip: $('series-zip').checked } : undefined,
         save_path:    S.pendingSavePath || S.settings.save_path || '',
         start_paused: startPaused,
         is_playlist:  det.is_playlist || false,

@@ -448,6 +448,7 @@ def _restore_queue(engine, cfg: dict):
                 "dl_type":      rec.get("dl_type", "ytdlp"),
                 "save_path":    rec.get("dest") or cfg.get("save_path", ""),
                 "start_paused": True,
+                "series": rec.get("series", {}),
             })
         except Exception as exc:
             _log.warning("Failed to restore queue item %s: %s", url[:60], exc)

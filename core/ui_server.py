@@ -169,6 +169,14 @@ class UIServer:
                 from core.detector import detect
                 return {"ok": True, "detection": detect(url)}
 
+            if action == 'inspect_series':
+                from downloaders.hianime_series import inspect_series
+                url = (msg.get('url') or '').strip()
+                proxy = self.cfg.get('proxy', '')
+                series = await asyncio.get_running_loop().run_in_executor(
+                    self._executor, inspect_series, url, proxy)
+                return {'ok': True, 'series': series}
+
             # ── Fetch formats (async, result via event) ────────────────────
             if action == "fetch_formats":
                 url    = (msg.get("url") or "").strip()
@@ -259,6 +267,7 @@ class UIServer:
                     "quality":      d.get("quality", ""),
                     "dl_type":      d.get("dl_type", "ytdlp"),
                     "save_path":    d.get("save_path", ""),
+                    "series":       {k: v for k, v in d.get("series", {}).items() if k != "job_id"},
                 })
                 return {"ok": True, "id": new_id}
 

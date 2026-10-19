@@ -107,6 +107,12 @@ def detect(url: str) -> dict:
     if host.startswith("www."):
         host = host[4:]
 
+    from downloaders.hianime_series import is_series_page
+    if is_series_page(url):
+        result = _result(TYPE_YTDLP, host, 'HiAnime', '▶', url)
+        result['series_capable'] = True
+        return result
+
     # DRM first
     if _match(host, DRM_HOSTS):
         return _result(TYPE_DRM, host, _drm_label(host), "🔒", url)

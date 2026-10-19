@@ -42,6 +42,7 @@ def save_queue(items: list) -> None:
                 "dl_type":          getattr(item, "dl_type",  "ytdlp"),
                 "source_label":     getattr(item, "source_label", ""),
                 "source_icon":      getattr(item, "source_icon",  ""),
+                "series":           getattr(item, "series", {}),
             })
         _STATE_FILE.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
         _log.info("Queue saved: %d item(s) to %s", len(records), _STATE_FILE)
