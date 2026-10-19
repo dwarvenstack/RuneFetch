@@ -1,50 +1,50 @@
 /* ── Hearth (dark) — default ─────────────────────────────────────────────── */
 :root {
-  --bg:          #1E1812;
-  --surface:     #292019;
-  --raised:      #332821;
-  --sunken:      #17120D;
+  --bg:          #202220;
+  --surface:     #272a27;
+  --raised:      #30342f;
+  --sunken:      #191c19;
   --overlay:     rgba(14, 10, 6, 0.72);
-  --text:        #ECE1CF;
-  --text-2:      #B8A894;
-  --text-muted:  #7A6A58;
+  --text:        #f0eee7;
+  --text-2:      #c2c6bc;
+  --text-muted:  #a0a69b;
   --text-on-accent: #2A1F12;
-  --accent:      #E3A65A;
+  --accent:      #d9b975;
   --accent-2:    #A7B388;
   --accent-red:  #D96B5F;
   --accent-green:#6EC98A;
   --border:      rgba(255,255,255,0.08);
-  --border-focus:#E3A65A;
+  --border-focus:#d9b975;
   --shadow:      0 4px 24px rgba(0,0,0,0.5);
   --shadow-sm:   0 2px 8px  rgba(0,0,0,0.35);
-  --radius:      10px;
+  --radius:      6px;
   --radius-sm:   6px;
-  --font-display:'Fraunces', 'Georgia', serif;
-  --font-body:   'Nunito Sans', 'Segoe UI', system-ui, sans-serif;
+  --font-display:'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+  --font-body:   'Segoe UI', system-ui, sans-serif;
   --font-mono:   'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-  --titlebar-h:  40px;
-  --sidebar-w:   200px;
-  --statusbar-h: 28px;
-  --transition:  0.18s ease;
+  --titlebar-h:  48px;
+  --sidebar-w:   184px;
+  --statusbar-h: 32px;
+  --transition:  120ms ease;
 }
 
 /* ── Sage (light) ────────────────────────────────────────────────────────── */
 [data-theme='light'] {
-  --bg:          #E6E9E0;
-  --surface:     #F1F3EC;
+  --bg:          #f7f5ef;
+  --surface:     #eeede5;
   --raised:      #FBFCF8;
-  --sunken:      #DCE0D3;
+  --sunken:      #e8e8df;
   --overlay:     rgba(54, 67, 58, 0.55);
-  --text:        #36433A;
-  --text-2:      #5A6B5E;
-  --text-muted:  #8A9E8E;
+  --text:        #282e26;
+  --text-2:      #50594b;
+  --text-muted:  #626b5c;
   --text-on-accent: #FBFCF8;
-  --accent:      #6F8F73;
+  --accent:      #6c5324;
   --accent-2:    #C08A5E;
   --accent-red:  #C0544A;
   --accent-green:#4A9B6A;
   --border:      rgba(0,0,0,0.10);
-  --border-focus:#6F8F73;
+  --border-focus:#6c5324;
   --shadow:      0 4px 20px rgba(0,0,0,0.12);
   --shadow-sm:   0 2px 6px  rgba(0,0,0,0.08);
 }

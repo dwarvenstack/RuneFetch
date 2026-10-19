@@ -4,13 +4,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RuneFetch</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=Nunito+Sans:wght@400;600;700&family=Lora:wght@700&family=Hanken+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles/tokens.css">
   <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="styles/workspace.css">
 </head>
 <body>
+<svg class="icon-definitions" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
+  <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></symbol>
+  <symbol id="icon-history" viewBox="0 0 24 24"><path d="M3 11a9 9 0 1 1 2 7M3 4v7h7m2-5v6l4 2"/></symbol>
+  <symbol id="icon-settings" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6M10 15v6"/></symbol>
+  <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 7V4h6l3 3h9v13H3Z"/></symbol>
+  <symbol id="icon-file" viewBox="0 0 24 24"><path d="M14 3H5v18h14V8Zm0 0v5h5M8 13h8m-8 4h6"/></symbol>
+  <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/></symbol>
+  <symbol id="icon-play" viewBox="0 0 24 24"><path d="m8 4 12 8-12 8Z"/></symbol>
+  <symbol id="icon-pause" viewBox="0 0 24 24"><path d="M8 4v16M16 4v16"/></symbol>
+  <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+  <symbol id="icon-mark" viewBox="0 0 24 24"><path d="M5 21V3h9l5 5-8 5m-6-1 13 9M11 3v10"/></symbol>
+</defs></svg>
 <div id="app-root">
 
   <!-- ── Title bar ──────────────────────────────────────────────────────── -->
@@ -18,16 +28,8 @@
     <!-- invisible drag overlay; interactive children overlap it via z-index -->
     <div id="titlebar-drag"></div>
 
-    <span class="brand">⛩ RuneFetch</span>
+    <span class="brand"><svg class="ui-icon brand-mark" aria-hidden="true"><use href="#icon-mark"/></svg> RuneFetch</span>
     <span class="by-line">by DwarvenStack</span>
-
-    <div class="url-bar-wrap">
-      <input id="url-input" type="text"
-             placeholder="Paste a URL — YouTube, Spotify, or 1000+ sites…"
-             autocomplete="off" spellcheck="false">
-      <button class="tb-btn secondary" id="btn-paste">Paste</button>
-      <button class="tb-btn primary"   id="btn-add">↓ Download</button>
-    </div>
 
     <div class="titlebar-spacer"></div>
 
@@ -38,26 +40,34 @@
     </div>
   </div>
 
+  <div class="download-strip">
+    <label for="url-input" class="composer-label">Add a download</label>
+    <div class="url-bar-wrap">
+      <input id="url-input" type="text" aria-label="Add a download link" placeholder="Paste a video, music or file link" autocomplete="off" spellcheck="false">
+      <button class="tb-btn secondary" id="btn-paste">Paste link</button>
+      <button class="tb-btn primary" id="btn-add"><svg class="ui-icon" aria-hidden="true"><use href="#icon-download"/></svg> Download</button>
+    </div>
+  </div>
+
   <!-- ── Body ───────────────────────────────────────────────────────────── -->
   <div id="body">
 
     <!-- Sidebar -->
     <aside id="sidebar">
-      <div class="nav-section-label">Queue</div>
+      <div class="nav-section-label">Workspace</div>
       <button class="nav-btn active" data-view="queue">
-        <span class="icon">↓</span> Downloads
+        <svg class="ui-icon" aria-hidden="true"><use href="#icon-download"/></svg> Downloads
       </button>
 
-      <div class="nav-section-label" style="margin-top:6px">Library</div>
       <button class="nav-btn" data-view="history">
-        <span class="icon">◷</span> History
+        <svg class="ui-icon" aria-hidden="true"><use href="#icon-history"/></svg> History
       </button>
 
       <div class="sidebar-footer">
         <button class="nav-btn" data-view="settings">
-          <span class="icon">⚙</span> Settings
+          <svg class="ui-icon" aria-hidden="true"><use href="#icon-settings"/></svg> Settings
         </button>
-        <a class="sidebar-link" href="#" id="dwarvenstack-link">⛩ DwarvenStack</a>
+        <a class="sidebar-link" href="https://github.com/dwarvenstack" target="_blank" rel="noopener noreferrer" id="dwarvenstack-link">Made by DwarvenStack ↗</a>
       </div>
     </aside>
 
@@ -66,10 +76,11 @@
 
       <!-- ── Queue view ────────────────────────────────────────────────── -->
       <section id="view-queue" class="view active">
+        <header class="workspace-heading"><div><p class="eyebrow">YOUR FILES, IN ORDER</p><h1>Downloads</h1></div><p class="heading-note">From the web.<br>To your own folder.</p></header>
         <div class="queue-toolbar">
           <span class="count-badge" id="queue-count"></span>
-          <button class="btn-sm accent"  id="btn-resume-all">▶ Resume all</button>
-          <button class="btn-sm"         id="btn-pause-all">⏸ Pause all</button>
+          <button class="btn-sm accent"  id="btn-resume-all">Resume all</button>
+          <button class="btn-sm"         id="btn-pause-all">Pause all</button>
           <button class="btn-sm"         id="btn-clear-done">Clear done</button>
           <button class="btn-sm danger"  id="btn-clear-all">Clear all</button>
         </div>
@@ -77,9 +88,10 @@
         <div id="queue-list"></div>
 
         <div id="empty-state" class="empty-state">
-          <div class="illo">⛩</div>
-          <h3>Queue is empty</h3>
-          <p>Paste a URL above and press <strong>Download</strong> to get started.</p>
+          <div class="illo"><svg class="ui-icon" aria-hidden="true"><use href="#icon-download"/></svg></div>
+          <h3>A place for your next find.</h3>
+          <p>Copy a link, paste it above, and choose <strong>Download</strong>. Your files will appear here.</p>
+          <span class="empty-footnote">Video, music, or a direct file link.</span>
         </div>
       </section>
 
@@ -94,7 +106,7 @@
         <p class="history-hint">Double-click to re-download · Select to delete</p>
         <div id="history-list"></div>
         <div id="history-empty" class="empty-state" style="display:none">
-          <div class="illo">◷</div>
+          <div class="illo"><svg class="ui-icon" aria-hidden="true"><use href="#icon-history"/></svg></div>
           <h3>No history yet</h3>
           <p>Completed downloads will appear here.</p>
         </div>
@@ -279,7 +291,7 @@
     <span class="status-speed" id="status-speed"></span>
     <span class="status-sep" id="status-sep2" style="display:none">·</span>
     <span id="status-path"></span>
-    <span style="margin-left:auto;font-size:10px;color:var(--text-muted)">RuneFetch 2.0 · DwarvenStack</span>
+    <span style="margin-left:auto;font-size:10px;color:var(--text-muted)">RuneFetch · DwarvenStack</span>
   </div>
 </div><!-- /#app-root -->
 

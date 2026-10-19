@@ -34,7 +34,7 @@ jobs:
           cache-dependency-path: requirements.txt
 
       - name: Install Inno Setup
-        run: choco install innosetup -y --no-progress
+        run: choco install innosetup ffmpeg -y --no-progress
 
       - name: Resolve version from the tag
         # The tag is the single source of truth for a release. Writing it into
@@ -65,11 +65,12 @@ jobs:
         # runs after VERSION was rewritten from the tag, so it also confirms the
         # binary will report the version it was actually tagged with.
         run: |
-          python ci/check_imports.py
-          python ci/check_modules.py
-          python ci/smoke_ws.py
-          python ci/smoke_update.py
-          python ci/test_update_download.py
+          foreach ($check in @('check_imports', 'check_modules', 'smoke_ws', 'smoke_update')) {
+            python "ci/$check.py"
+            if ($LASTEXITCODE -ne 0) { throw "$check failed" }
+          }
+          python -m unittest discover -s ci -p "test_*.py"
+          if ($LASTEXITCODE -ne 0) { throw "Regression suite failed" }
 
       - name: Record the exact dependency set
         # Shipped with the release so any user-reported bug can be reproduced
@@ -92,7 +93,11 @@ jobs:
           app.py
 
       - name: Verify packaged Spotify worker
-        run: python ci/check_bundle.py
+        run: |
+          python ci/check_bundle.py
+          if ($LASTEXITCODE -ne 0) { throw "Packaged Spotify worker failed" }
+          python ci/smoke_bundle.py
+          if ($LASTEXITCODE -ne 0) { throw "Packaged startup failed" }
 
       - name: Package portable zip
         shell: pwsh
@@ -114,6 +119,14 @@ jobs:
               /DMyAppVersion=${{ steps.version.outputs.version }} `
               packaging\RuneFetch.iss
           Get-ChildItem dist_installer
+          if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
+          $installer = "dist_installer/RuneFetch-Setup-${{ steps.version.outputs.version }}.exe"
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path $installer -Leaf)" | Set-Content "$installer.sha256" -Encoding ascii
+
+      - name: Verify installer extraction and reinstall
+        shell: pwsh
+        run: ./ci/smoke_installer.ps1
 
       - uses: actions/upload-artifact@v4
         with:
@@ -121,6 +134,7 @@ jobs:
           path: |
             RuneFetch-windows.zip
             dist_installer/*.exe
+            dist_installer/*.sha256
 
       - name: Check whether release is already published
         id: release_state
@@ -148,5 +162,6 @@ jobs:
           generate_release_notes: true
           files: |
             dist_installer/RuneFetch-Setup-${{ steps.version.outputs.version }}.exe
+            dist_installer/RuneFetch-Setup-${{ steps.version.outputs.version }}.exe.sha256
             RuneFetch-windows.zip
             requirements-lock.txt

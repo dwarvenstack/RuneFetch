@@ -16,7 +16,7 @@ _log = logging.getLogger(__name__)
 # Fallback used only if the VERSION file is missing from a build. Keep it in
 # sync with VERSION so a packaging mistake degrades quietly rather than
 # reporting something wildly wrong.
-_FALLBACK = "2.0.1"
+_FALLBACK = "2.0.2"
 
 
 def _version_file() -> pathlib.Path:

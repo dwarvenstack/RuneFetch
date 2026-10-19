@@ -12,6 +12,7 @@ import logging
 import math
 import os
 import threading
+import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -52,7 +53,9 @@ def download(item, progress_cb=None) -> bool:
     n_segs = int(getattr(item, "fragment_threads", 4))
     proxy  = getattr(item, "proxy", "") or ""
     proxies = {"http": proxy, "https": proxy} if proxy else None
-    stop_evt: threading.Event = getattr(item, "_stop_event", threading.Event())
+    stop_evt: threading.Event = item.cancel_event
+    report_done = threading.Event()
+    range_ignored = threading.Event()
 
     save_dir = item.save_path
     try:
@@ -74,6 +77,7 @@ def download(item, progress_cb=None) -> bool:
         total = int(head.headers.get("content-length", 0))
         accepts_ranges = head.headers.get("accept-ranges", "").lower() == "bytes"
         filename = _get_filename(url, head.headers)
+        head.close()
     except net_guard.BlockedAddressError as exc:
         _log.warning("Segmented download blocked by net guard: %s", exc)
         item.error = "URL resolves to a private/local address — blocked."
@@ -82,7 +86,7 @@ def download(item, progress_cb=None) -> bool:
         item.error = str(exc)
         return False
 
-    if not total or not accepts_ranges or total < _MIN_SEG_SIZE or n_segs <= 1:
+    if not total or not accepts_ranges or total < _MIN_SEG_SIZE or n_segs <= 1 or getattr(item, 'throttle_kbps', 0):
         return _single()
 
     dest = Path(_contain(save_dir, _unique_path(save_dir, filename)))
@@ -90,7 +94,7 @@ def download(item, progress_cb=None) -> bool:
 
     seg_size  = math.ceil(total / n_segs)
     ranges    = [(i * seg_size, min((i + 1) * seg_size - 1, total - 1)) for i in range(n_segs)]
-    tmp_files = [dest.with_suffix(f".part{i}") for i in range(n_segs)]
+    tmp_files = [Path(str(dest) + f".part{i}") for i in range(n_segs)]
 
     downloaded = [0] * n_segs   # bytes downloaded per segment
     lock = threading.Lock()
@@ -108,8 +112,14 @@ def download(item, progress_cb=None) -> bool:
             with net_guard.safe_request("GET", url, headers=seg_headers, stream=True,
                                         timeout=60, proxies=proxies) as r:
                 r.raise_for_status()
+                if r.status_code == 200:
+                    range_ignored.set()
+                    return False
+                if r.status_code != 206 or r.headers.get('Content-Range', '') != f'bytes {lo}-{hi}/{total}':
+                    raise RuntimeError('Server returned an invalid byte range')
                 with open(tmp_files[idx], "wb") as f:
                     for chunk in r.iter_content(_CHUNK):
+                        item.pause_event.wait()
                         if stop_evt.is_set():
                             return False
                         f.write(chunk)
@@ -118,7 +128,7 @@ def download(item, progress_cb=None) -> bool:
         except Exception as exc:
             _log.warning("Segment %d failed: %s", idx, exc)
             return False
-        return True
+        return downloaded[idx] == hi - lo + 1
 
     import time
     start_t = time.monotonic()
@@ -144,8 +154,10 @@ def download(item, progress_cb=None) -> bool:
     timer = threading.Timer(0.3, _report)
 
     def _repeating_report():
+        if report_done.is_set():
+            return
         _report()
-        if not stop_evt.is_set() and sum(downloaded) < total:
+        if not report_done.is_set() and not stop_evt.is_set() and sum(downloaded) < total:
             timer2 = threading.Timer(0.4, _repeating_report)
             timer2.daemon = True
             timer2.start()
@@ -161,12 +173,15 @@ def download(item, progress_cb=None) -> bool:
             if not fut.result():
                 success = False
 
+    report_done.set()
     timer.cancel()
 
     if not success or stop_evt.is_set():
         for tmp in tmp_files:
             try: tmp.unlink(missing_ok=True)
             except Exception: pass
+        if range_ignored.is_set() and not stop_evt.is_set():
+            return _single()
         if stop_evt.is_set():
             item.error = "cancelled"
         else:
@@ -175,12 +190,16 @@ def download(item, progress_cb=None) -> bool:
 
     # ── Assemble ──────────────────────────────────────────────────────────────
     try:
-        with open(dest, "wb") as out:
+        assembled = Path(str(dest) + '.assembling')
+        with open(assembled, "wb") as out:
             for tmp in tmp_files:
-                out.write(tmp.read_bytes())
+                with open(tmp, 'rb') as source:
+                    shutil.copyfileobj(source, out)
                 tmp.unlink(missing_ok=True)
+        os.replace(assembled, dest)
     except Exception as exc:
         item.error = f"Assembly failed: {exc}"
+        assembled.unlink(missing_ok=True)
         for tmp in tmp_files:
             try: tmp.unlink(missing_ok=True)
             except Exception: pass

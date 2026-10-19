@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import time
+from contextlib import ExitStack
 from urllib.parse import urlparse, unquote
 
 import requests
@@ -26,6 +27,7 @@ HEADERS = {
         "Chrome/124.0.0.0 Safari/537.36"
     ),
     "Accept": "*/*",
+    "Accept-Encoding": "identity",
 }
 
 CHUNK = 65_536   # 64 KB
@@ -51,6 +53,7 @@ def download_direct(item, progress_cb):
                                       allow_redirects=True, timeout=10, proxies=proxies)
         filename = _get_filename(item.url, head.headers)
         _log.debug("HEAD ok  status=%s  filename=%r", head.status_code, filename)
+        head.close()
     except net_guard.BlockedAddressError as exc:
         _log.warning("Direct download blocked by net guard: %s", exc)
         raise Exception(
@@ -60,8 +63,18 @@ def download_direct(item, progress_cb):
         _log.warning("HEAD request failed (%s) — using 'download.bin'", exc)
         filename = "download.bin"
 
-    dest      = _contain(save_dir, _unique_path(save_dir, filename))
+    base_dest = _contain(save_dir, os.path.join(save_dir, filename))
+    resume_matches = False
+    try:
+        with open(base_dest + '.part.url', encoding='utf-8') as metadata:
+            resume_matches = metadata.read() == item.url and not os.path.exists(base_dest)
+    except OSError:
+        pass
+    dest = base_dest if resume_matches else _contain(save_dir, _unique_path(save_dir, filename))
     part_file = dest + ".part"
+    metadata_file = part_file + '.url'
+    with open(metadata_file, 'w', encoding='utf-8') as metadata:
+        metadata.write(item.url)
 
     # Resume: check if a partial download exists
     resume_pos = 0
@@ -82,18 +95,34 @@ def download_direct(item, progress_cb):
     min_chunk_time = (CHUNK / (throttle_kbps * 1024)) if throttle_kbps and throttle_kbps > 0 else 0
 
     try:
-        with net_guard.safe_request("GET", item.url, headers=req_headers, stream=True,
-                                    timeout=30, proxies=proxies) as r:
+        with ExitStack() as responses:
+            r = responses.enter_context(net_guard.safe_request(
+                "GET", item.url, headers=req_headers, stream=True, timeout=30, proxies=proxies))
             # 416 = Range Not Satisfiable → server doesn't support resume, restart
             if r.status_code == 416:
                 _log.info("Server returned 416 — restarting without Range header")
                 resume_pos = 0
                 req_headers.pop("Range", None)
-                r = net_guard.safe_request("GET", item.url, headers=req_headers,
-                                           stream=True, timeout=30, proxies=proxies)
+                r = responses.enter_context(net_guard.safe_request(
+                    "GET", item.url, headers=req_headers, stream=True, timeout=30, proxies=proxies))
             r.raise_for_status()
 
-            total = int(r.headers.get("Content-Length", 0))
+            encoded = r.headers.get('Content-Encoding', '').lower() not in ('', 'identity')
+            if resume_pos and encoded:
+                req_headers.pop('Range', None)
+                resume_pos = 0
+                r = responses.enter_context(net_guard.safe_request(
+                    "GET", item.url, headers=req_headers, stream=True, timeout=30, proxies=proxies))
+                r.raise_for_status()
+                encoded = r.headers.get('Content-Encoding', '').lower() not in ('', 'identity')
+
+            if resume_pos and r.status_code == 200:
+                resume_pos = 0  # Server ignored Range: overwrite rather than append.
+            if resume_pos and not r.headers.get('Content-Range', '').startswith(f'bytes {resume_pos}-'):
+                raise RuntimeError('Server returned an invalid resume range')
+
+            # requests yields decoded bytes; Content-Length measures wire bytes.
+            total = 0 if encoded else int(r.headers.get("Content-Length", 0))
             if resume_pos and total:
                 total += resume_pos
 
@@ -138,6 +167,9 @@ def download_direct(item, progress_cb):
                 _log.error("Write error during download of %r: %s", filename, exc)
                 raise Exception(f"Disk write failed: {exc}") from exc
 
+            if total and downloaded != total:
+                raise RuntimeError(f'Incomplete download: expected {total} bytes, received {downloaded}')
+
     except requests.RequestException as exc:
         _log.error("Network error downloading %s: %s", item.url[:80], exc)
         raise Exception(f"Network error: {exc}") from exc
@@ -146,6 +178,10 @@ def download_direct(item, progress_cb):
     try:
         if os.path.exists(part_file):
             os.replace(part_file, dest)
+            try:
+                os.unlink(metadata_file)
+            except OSError:
+                pass
     except OSError as exc:
         _log.error("Could not rename part file to %r: %s", dest, exc)
         raise Exception(f"Could not finalise file: {exc}") from exc
@@ -174,6 +210,10 @@ def _sanitize_filename(name: str) -> str:
     name = re.sub(r'[<>:"/\\|?*]', "_", name).strip(". ")
     if not name:
         return "download.bin"
+    # Windows treats device names as special even when an extension is present.
+    stem = name.split('.')[0].rstrip().upper()
+    if stem in {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}:
+        name = "_" + name
     return name[:200]
 
 

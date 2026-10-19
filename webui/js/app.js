@@ -45,6 +45,7 @@ const S = {
 // ── DOM ───────────────────────────────────────────────────────────────────────
 
 const $ = id => document.getElementById(id);
+const uiIcon = name => `<svg class="ui-icon" aria-hidden="true"><use href="#icon-${name}"/></svg>`;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
@@ -85,6 +86,16 @@ const $ = id => document.getElementById(id);
 // ── Navigation ────────────────────────────────────────────────────────────────
 
 function setupNav() {
+  $('dwarvenstack-link').addEventListener('click', async e => {
+    if (!window.pywebview?.api?.open_project_page) return;
+    e.preventDefault();
+    try {
+      const opened = await window.pywebview.api.open_project_page();
+      if (!opened) toast('Could not open your browser. Visit github.com/dwarvenstack.', 'warn');
+    } catch {
+      toast('Could not open your browser. Visit github.com/dwarvenstack.', 'warn');
+    }
+  });
   document.querySelectorAll('.nav-btn[data-view]').forEach(btn => {
     btn.addEventListener('click', () => switchView(btn.dataset.view));
   });
@@ -580,7 +591,7 @@ function buildHistCard(item) {
   const sub = [item.source_label, fmt, item.size, item.date].filter(Boolean).join('  ·  ');
 
   card.innerHTML = `
-    <span class="hist-icon">${esc(item.source_icon || '↓')}</span>
+    <span class="hist-icon">${uiIcon('file')}</span>
     <div class="hist-meta">
       <div class="hist-title" title="${esc(item.title || item.url || '')}">${esc(item.title || item.url || '—')}</div>
       <div class="hist-sub">
@@ -590,13 +601,13 @@ function buildHistCard(item) {
     </div>
     <div class="hist-actions">
       <button class="icon-btn" data-hist-action="redownload" title="Re-download">↺</button>
-      <button class="icon-btn danger" data-hist-action="delete" title="Delete entry">🗑</button>
+      <button class="icon-btn danger" data-hist-action="delete" title="Delete entry" aria-label="Delete entry">${uiIcon('trash')}</button>
     </div>`;
 
   // Select on click (anywhere except action buttons)
   card.addEventListener('click', e => {
     if (e.target.closest('[data-hist-action]')) return;
-    card.style.background = card.style.background ? '' : 'rgba(227,166,90,0.10)';
+    card.classList.toggle('is-selected', !S.selectedHistIds.has(item.id));
     if (S.selectedHistIds.has(item.id)) S.selectedHistIds.delete(item.id);
     else S.selectedHistIds.add(item.id);
     $('btn-history-delete-sel').disabled = S.selectedHistIds.size === 0;
@@ -963,6 +974,7 @@ function upsertCard(item) {
   }
 
   const st       = item.state || 'Queued';
+  card.dataset.state = st;
   const badgeCls = BADGE_CLS[st] || 'badge-queued';
   const active   = st === 'Downloading';
   const paused   = st === 'Paused';
@@ -990,7 +1002,7 @@ function upsertCard(item) {
 
     card.innerHTML = `
       <div class="card-header">
-        <div class="card-icon">${esc(item.source_icon || '↓')}</div>
+        <div class="card-icon">${uiIcon('file')}</div>
         <div class="card-meta">
           <div class="card-title" title="${esc(item.title || item.url || '')}">${esc(item.title || item.url || 'Loading…')}</div>
           <div class="card-sub">
@@ -1002,12 +1014,12 @@ function upsertCard(item) {
         <div class="card-actions">
           <button class="icon-btn" data-action="${paused ? 'resume' : 'pause'}"
             title="${paused ? 'Resume' : 'Pause'}"
-            ${!canPause ? 'disabled' : ''}>${paused ? '▶' : '⏸'}</button>
+            aria-label="${paused ? 'Resume' : 'Pause'}" ${!canPause ? 'disabled' : ''}>${uiIcon(paused ? 'play' : 'pause')}</button>
           <button class="icon-btn danger" data-action="cancel"
-            title="Cancel" ${!canCancel ? 'disabled' : ''}>✕</button>
+            title="Cancel" aria-label="Cancel" ${!canCancel ? 'disabled' : ''}>${uiIcon('close')}</button>
           <button class="icon-btn" data-action="open_folder"
-            title="Open save folder" ${queued ? 'disabled' : ''}>📂</button>
-          <button class="icon-btn danger" data-action="remove" title="Remove">🗑</button>
+            title="Open save folder" aria-label="Open save folder" ${queued ? 'disabled' : ''}>${uiIcon('folder')}</button>
+          <button class="icon-btn danger" data-action="remove" title="Remove" aria-label="Remove">${uiIcon('trash')}</button>
         </div>
       </div>
       ${progressHtml}
@@ -1077,7 +1089,8 @@ function upsertCard(item) {
   if (btnPause) {
     btnPause.dataset.action = paused ? 'resume' : 'pause';
     btnPause.title          = paused ? 'Resume' : 'Pause';
-    btnPause.textContent    = paused ? '▶' : '⏸';
+    btnPause.innerHTML      = uiIcon(paused ? 'play' : 'pause');
+    btnPause.setAttribute('aria-label', paused ? 'Resume' : 'Pause');
     btnPause.disabled       = !canPause;
   }
   if (btnCancel) btnCancel.disabled = !canCancel;

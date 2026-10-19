@@ -42,6 +42,9 @@ Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\{#MyAppExeName}
+; /TESTINSTALL=1 extracts a test installation without touching registration,
+; shortcuts or running user apps. Normal installs keep the standard behavior.
+Uninstallable=not IsTestInstall
 
 ; Let Restart Manager close a running RuneFetch instead of failing on locked
 ; files. Paired with /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS from the updater.
@@ -58,15 +61,15 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 Source: "..\dist\RuneFetch\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}";              Filename: "{app}\{#MyAppExeName}"
-Name: "{group}\Uninstall {#MyAppName}";    Filename: "{uninstallexe}"
-Name: "{userdesktop}\{#MyAppName}";        Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{group}\{#MyAppName}";              Filename: "{app}\{#MyAppExeName}"; Check: not IsTestInstall
+Name: "{group}\Uninstall {#MyAppName}";    Filename: "{uninstallexe}"; Check: not IsTestInstall
+Name: "{userdesktop}\{#MyAppName}";        Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; Check: not IsTestInstall
 
 [Run]
 ; runascurrentuser matters: without it the relaunched app could run at a
 ; different integrity level than the user's session.
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; \
-  Flags: nowait postinstall skipifsilent runascurrentuser
+  Flags: nowait postinstall skipifsilent runascurrentuser; Check: not IsTestInstall
 
 ; After a silent (auto-)update, relaunch without asking — the user already
 ; consented in the app's update dialog.
@@ -76,7 +79,12 @@ Filename: "{app}\{#MyAppExeName}"; Flags: nowait runascurrentuser; Check: WasSil
 Type: filesandordirs; Name: "{app}"
 
 [Code]
+function IsTestInstall: Boolean;
+begin
+  Result := ExpandConstant('{param:TESTINSTALL|0}') = '1';
+end;
+
 function WasSilent: Boolean;
 begin
-  Result := WizardSilent;
+  Result := WizardSilent and not IsTestInstall;
 end;

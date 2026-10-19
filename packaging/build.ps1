@@ -8,7 +8,9 @@ if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'VERSION must be X.Y.Z' }
 $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
 if (-not (Test-Path $compiler)) { throw 'Install Inno Setup 6 first.' }
 
-foreach ($check in @('check_imports', 'check_modules', 'smoke_update', 'smoke_ws', 'test_update_download')) {
+& $python -m unittest discover -s ci -p 'test_*.py'
+if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed' }
+foreach ($check in @('check_imports', 'check_modules', 'smoke_update', 'smoke_ws')) {
     & $python "ci/$check.py"
     if ($LASTEXITCODE -ne 0) { throw "$check failed" }
 }
@@ -26,6 +28,8 @@ $bundledVersion = (Get-Content dist/RuneFetch/_internal/VERSION -Raw).Trim()
 if ($bundledVersion -ne $version) { throw 'Bundle version differs from VERSION; rebuild.' }
 & $python ci/check_bundle.py
 if ($LASTEXITCODE -ne 0) { throw 'Packaged Spotify worker check failed' }
+& $python ci/smoke_bundle.py
+if ($LASTEXITCODE -ne 0) { throw 'Packaged startup check failed' }
 Copy-Item README.md,LICENSE dist/RuneFetch/
 Copy-Item browser_extension dist/RuneFetch/ -Recurse -Force
 & $python -m pip freeze | Set-Content dist/RuneFetch/requirements-lock.txt

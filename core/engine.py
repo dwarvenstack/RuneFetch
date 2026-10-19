@@ -43,6 +43,7 @@ def item_to_dict(it) -> dict:
         "error_msg":    it.error_msg,
         "fmt":          it.fmt,
         "quality":      it.quality,
+        "dl_type":      it.dl_type,
         "save_path":    it.save_path,
     }
 
@@ -180,12 +181,17 @@ class EngineFacade:
         _save_history_file([])
 
     def _record_history(self, d: dict):
+        if not self._cfg.get("keep_history", True):
+            return
         from datetime import datetime
         entry = dict(d)
         entry["date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
         # Normalise fmt label to match Qt history format
         fmt = entry.get("fmt", "")
-        if "audio" in fmt.lower() or "mp3" in fmt.lower():
+        extension = Path(entry.get("title", "")).suffix.lstrip('.').upper()
+        if entry.get("dl_type") == "direct" and extension:
+            entry["fmt_display"] = extension
+        elif "mp3" in fmt.lower() or ("audio" in fmt.lower() and "video" not in fmt.lower()):
             entry["fmt_display"] = "MP3"
         elif "mp4" in fmt.lower() or "video" in fmt.lower() or "bestvideo" in fmt.lower():
             entry["fmt_display"] = "MP4"

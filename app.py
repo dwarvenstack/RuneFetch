@@ -76,6 +76,11 @@ class Api:
     def _window(self):
         return self._win[0] if self._win else None
 
+    def open_project_page(self) -> bool:
+        """Open the publisher page in the user's default browser."""
+        import webbrowser
+        return webbrowser.open("https://github.com/dwarvenstack", new=2)
+
     # ── Window movement (called on every mousemove while dragging titlebar) ──
 
     def move_window(self, x: int, y: int):
@@ -182,6 +187,7 @@ class Api:
 
     def get_tokens(self) -> dict:
         return {
+            "ui_port": self._cfg.get("ui_port", 8770),
             "ui_token":     self._cfg.get("ui_token", ""),
             "bridge_token": self._cfg.get("bridge_token", ""),
         }
@@ -534,7 +540,7 @@ def main():
 
     # UI WebSocket server
     from core.ui_server import UIServer
-    ui_server = UIServer(engine=engine, cfg=cfg)
+    ui_server = UIServer(engine=engine, cfg=cfg, port=cfg.get("ui_port", 8770))
     ui_server.start()
 
     # Clipboard monitor
