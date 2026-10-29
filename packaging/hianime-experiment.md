@@ -13,7 +13,7 @@ No remote push, published release, or installed application replacement is part 
 - Keeps other sites on their existing yt-dlp path.
 - Allows HLS video resolutions in the quality picker when the manifest omits codec metadata.
 
-Dub selection, subtitle embedding, full-season playlists, other mirrors and alternate video hosts are not implemented. Site and host changes may break this experimental adapter. No CAPTCHA solving or DRM bypass is implemented.
+The initial experiment did not include subtitle embedding or series downloads; both were added in later local release/2.0.3 changes. Dub selection remains unimplemented. Site and host changes may break this experimental adapter. No CAPTCHA solving or DRM bypass is implemented.
 
 ## Validation
 

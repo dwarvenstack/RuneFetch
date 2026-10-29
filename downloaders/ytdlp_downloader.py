@@ -85,6 +85,9 @@ def _build_postprocessors(item) -> list:
         pp.append({"key": "FFmpegMetadata", "add_metadata": True})
     else:
         pp.append({"key": "FFmpegVideoConvertor", "preferedformat": "mp4"})
+        from downloaders.hianime import HiAnimeIE
+        if HiAnimeIE.suitable(item.url):
+            pp.append({'key': 'FFmpegEmbedSubtitle', 'already_have_subtitle': True})
     return pp
 
 
@@ -188,6 +191,9 @@ def download_ytdlp(item, progress_cb):
             ),
         },
     }
+    from downloaders.hianime import HiAnimeIE
+    if HiAnimeIE.suitable(item.url) and not is_audio:
+        ydl_opts.update(writesubtitles=True, subtitleslangs=['en'], subtitlesformat='vtt/srt/best')
     if proxy:
         ydl_opts["proxy"] = proxy
     # Only set merge format for video — audio extraction needs its own ext

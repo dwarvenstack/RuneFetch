@@ -176,6 +176,10 @@ def download_series(item, progress_cb):
         if not output.is_file() or output.stat().st_size == 0:
             raise RuntimeError(f'Episode {episode["number"]} did not produce a completed media file; ZIP was not created')
         files.append(output)
+        # Keep the separate subtitles with their episode in the archive too.
+        for subtitle in sorted(folder.glob(prefix + '.en.*')):
+            if subtitle.suffix.lower() in ('.vtt', '.srt', '.ass'):
+                files.append(subtitle)
         progress_cb(scale * (index + 1) / count, '', f'{index + 1}/{count} episodes complete', '')
     if batch['zip']:
         archive = Path(str(folder) + '.zip')

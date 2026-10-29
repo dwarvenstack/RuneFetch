@@ -69,7 +69,7 @@ class AutomaticServerTests(unittest.TestCase):
 
     def test_failed_first_server_uses_next_server(self):
         second='https://new-player.example.com/watch/2'
-        with patch('downloaders.hianime.assert_url_allowed'),patch.object(self.ie,'_download_webpage',return_value=self.page),patch.object(self.ie,'_download_json',return_value={'html':server()+server(second)}),patch.object(self.ie,'_player_formats',side_effect=[ExtractorError('offline'),([{'url':STREAM}],{'Referer':second})]) as probe:
+        with patch('downloaders.hianime.assert_url_allowed'),patch.object(self.ie,'_download_webpage',return_value=self.page),patch.object(self.ie,'_download_json',return_value={'html':server()+server(second)}),patch.object(self.ie,'_player_formats',side_effect=[ExtractorError('offline'),([{'url':STREAM}],{'Referer':second},{})]) as probe:
             result=self.ie._real_extract(URL)
             self.assertEqual(probe.call_count,2)
             self.assertEqual(result['http_headers']['Referer'],second)
@@ -86,18 +86,18 @@ class AutomaticServerTests(unittest.TestCase):
 
     def test_matching_player_config_survives_host_rename(self):
         with patch('downloaders.hianime.assert_url_allowed'),patch.object(self.ie,'_download_webpage',return_value=encode_config({'src':STREAM})),patch.object(self.ie,'_extract_m3u8_formats',return_value=[{'url':STREAM}]):
-            formats,headers=self.ie._player_formats('https://new-player.example.com/embed/1','1',URL)
+            formats,headers,_=self.ie._player_formats('https://new-player.example.com/embed/1','1',URL)
             self.assertEqual(formats[0]['url'],STREAM)
 
     def test_standard_hls_player_is_recognized(self):
         with patch('downloaders.hianime.assert_url_allowed'),patch.object(self.ie,'_download_webpage',return_value='<video><source src="'+STREAM+'"></video>'),patch.object(self.ie,'_extract_m3u8_formats',return_value=[{'url':STREAM}]) as manifest:
-            formats,_=self.ie._player_formats(PLAYER,'1',URL)
+            formats,_,_=self.ie._player_formats(PLAYER,'1',URL)
             self.assertEqual(formats[0]['url'],STREAM)
             manifest.assert_called_once()
 
     def test_unknown_player_uses_existing_ytdlp_extractors(self):
         with patch('downloaders.hianime.assert_url_allowed'),patch.object(self.ie,'_download_webpage',return_value='<html/>'),patch.object(self.ie._downloader,'extract_info',return_value={'formats':[{'url':STREAM}]}):
-            formats,_=self.ie._player_formats(PLAYER,'1',URL)
+            formats,_,_=self.ie._player_formats(PLAYER,'1',URL)
             self.assertEqual(formats[0]['url'],STREAM)
 
     def test_server_probes_are_bounded(self):

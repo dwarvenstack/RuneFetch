@@ -56,13 +56,57 @@ class HiAnimeIE(InfoExtractor):
         parser.feed(fragment)
         return parser.urls[:6]
 
+    @staticmethod
+    def subtitle_tracks(tracks):
+        """Use human labels: some players incorrectly mark every language as en."""
+        if not isinstance(tracks, list):
+            return {}
+        languages = {'english': 'en', 'arabic': 'ar', 'french': 'fr', 'german': 'de',
+                     'italian': 'it', 'portuguese': 'pt', 'spanish': 'es', 'hindi': 'hi',
+                     'japanese': 'ja', 'russian': 'ru', 'turkish': 'tr'}
+        subtitles = {}
+        for track in tracks:
+            if not isinstance(track, dict) or track.get('kind', 'subtitles') not in ('subtitles', 'captions'):
+                continue
+            url = track.get('src') or track.get('url') or ''
+            if not isinstance(url, str) or urlsplit(url).scheme != 'https':
+                continue
+            try:
+                assert_url_allowed(url)
+            except (BlockedAddressError, ValueError, OSError):
+                continue
+            label = str(track.get('label') or track.get('name') or '').strip()
+            key = label.lower()
+            language = next((code for name, code in languages.items() if key == name or key.startswith(name + ' ')), None)
+            if label:
+                language = language or re.sub(r'[^a-z0-9-]+', '-', key).strip('-') or 'und'
+            else:
+                language = str(track.get('lang') or track.get('srclang') or 'und').lower()
+            if language == 'en' and any(word in key for word in ('signs', 'songs')):
+                language = 'en-signs'
+            ext = urlsplit(url).path.rsplit('.', 1)[-1].lower()
+            if ext not in ('vtt', 'srt', 'ass'):
+                continue
+            entries = subtitles.setdefault(language, [])
+            entry = {'url': url, 'ext': ext, 'name': label or language}
+            if entry not in entries:
+                # Full default tracks take precedence over alternate versions.
+                if track.get('default'):
+                    entries.append(entry)
+                else:
+                    entries.insert(0, entry)
+        return subtitles
+
     def _player_formats(self, embed_url, episode_id, page_url):
         assert_url_allowed(embed_url)
         embed = self._download_webpage(embed_url, episode_id, headers={'Referer': page_url})
         headers = {'Referer': embed_url}
+        subtitles = {}
         # Recognize the player configuration rather than relying on its hostname.
         if re.search(r'window\.__P\s*=', embed):
-            streams = [self.decode_config(embed)['src']]
+            config = self.decode_config(embed)
+            streams = [config['src']]
+            subtitles = self.subtitle_tracks(config.get('subtitles', []))
         else:
             # Standard source URLs can be read without executing site scripts.
             streams = re.findall(r'https?://[^\s\"\'<>]+?\.m3u8(?:\?[^\s\"\'<>]*)?',
@@ -72,12 +116,17 @@ class HiAnimeIE(InfoExtractor):
             formats = self._extract_m3u8_formats(stream, episode_id, 'mp4',
                 m3u8_id='hls', headers=headers, fatal=False)
             if formats:
-                return formats, headers
+                return formats, headers, subtitles
         # Let existing upstream extractors handle additional player families.
         info = self._downloader.extract_info(embed_url, download=False)
         formats = info.get('formats') if isinstance(info, dict) else None
         if formats:
-            return formats, info.get('http_headers') or headers
+            raw = info.get('subtitles') or {}
+            safe = {}
+            for lang, tracks in raw.items() if isinstance(raw, dict) else []:
+                if isinstance(tracks, list):
+                    safe.update(self.subtitle_tracks([{**t, 'lang': lang} for t in tracks if isinstance(t, dict)]))
+            return formats, info.get('http_headers') or headers, safe
         raise ExtractorError('No supported stream found on this server', expected=True)
 
     def _real_extract(self, url):
@@ -100,19 +149,23 @@ class HiAnimeIE(InfoExtractor):
             if embed_url == url or self.suitable(embed_url):
                 continue  # Never recursively resolve an episode as its own player.
             try:
-                formats, headers = self._player_formats(embed_url, episode_id, url)
+                formats, headers, subtitles = self._player_formats(embed_url, episode_id, url)
+                if self.get_param('writesubtitles') and not subtitles.get('en'):
+                    raise ExtractorError('English subtitles are unavailable on this server', expected=True)
                 break
             except (ExtractorError, DownloadError, BlockedAddressError, ValueError, OSError):
+                formats = None
                 failures += 1
                 self.to_screen(f'Server {failures} unavailable; trying the next server')
         if not formats:
+            requirement = ' with English subtitles' if self.get_param('writesubtitles') else ''
             raise ExtractorError(
-                f'No working supported subtitled server found after trying {failures} server(s)',
+                f'No working supported subtitled server{requirement} found after trying {failures} server(s)',
                 expected=True)
         title = clean_html(self._html_extract_title(page, default=None)) or 'HiAnime episode ' + episode_id
         title = re.sub(r'\s*\|\s*HiAnime\s*$', '', title)
         return {'id': episode_id, 'title': title, 'formats': formats,
-                'http_headers': headers, 'webpage_url': url}
+                'http_headers': headers, 'webpage_url': url, 'subtitles': subtitles}
 
 
 def create_ytdlp(options, url):

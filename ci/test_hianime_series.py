@@ -71,6 +71,17 @@ class BatchTests(unittest.TestCase):
             self.assertEqual(z.namelist(),['Episode 001.mp4','Episode 002.mp4','Episode 003.mp4'])
             for name in z.namelist():self.assertEqual(z.read(name),next(self.root.glob('*/'+name)).read_bytes())
         self.assertFalse(list(self.root.glob('*.zip.part')))
+    def test_zip_includes_separate_english_subtitles_for_each_episode(self):
+        def transfer_with_subtitle(child, cb):
+            self.transfer(child, cb)
+            Path(child.output_template.replace('.%(ext)s', '.en.vtt')).write_text('WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nSubtitles\n')
+        with patch('downloaders.ytdlp_downloader.download_ytdlp', side_effect=transfer_with_subtitle):
+            download_series(self.item, lambda *a, **k: None)
+        with zipfile.ZipFile(next(self.root.glob('*.zip'))) as archive:
+            self.assertEqual(len(archive.namelist()), 6)
+            self.assertEqual(len([n for n in archive.namelist() if n.endswith('.en.vtt')]), 3)
+            self.assertIsNone(archive.testzip())
+
     def test_unchecked_zip_saves_only_episode_files(self):
         self.item.series['zip']=False
         with patch('downloaders.ytdlp_downloader.download_ytdlp',side_effect=self.transfer):download_series(self.item,lambda *a,**k:None)

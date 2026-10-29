@@ -344,6 +344,7 @@ async function startDownload(urlOverride, detOverride) {
 // ── Audio-only quality modal (Spotify, SoundCloud, etc.) ─────────────────────
 
 function openAudioQualityModal(det) {
+  $('anime-subtitle-note').hidden = true;
   $('series-options').hidden = true;
   $('btn-download').textContent = 'Download';
   $('qual-title').textContent    = 'Select Audio Quality';
@@ -373,6 +374,7 @@ function setupQualityModal() {
 }
 
 function openQualityModal(det) {
+  $('anime-subtitle-note').hidden = !(det.series || det.series_capable);
   $('series-options').hidden = !det.series;
   $('btn-download').textContent = 'Download';
   $('qual-title').textContent    = 'Select Quality';
@@ -533,6 +535,7 @@ function showQualityOptions(opts, withSize) {
 function pickQuality(opt) {
   S.selectedFmt       = opt.fmt;
   S.selectedIsAudio   = opt.isAudio;
+  $('anime-subtitle-note').hidden = Boolean(opt.isAudio) || !(S.pendingDet?.series || S.pendingDet?.series_capable);
   S.selectedQualLabel = opt.label;
 }
 

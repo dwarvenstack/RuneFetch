@@ -19,4 +19,4 @@ Validation:
 - Module import checks passed. Local builds and GitHub build/release workflows now run frontend tests too.
 - A complete live 64-episode series transfer was not run. Batch/archive tests use small deterministic files; earlier live single-episode downloads were validated separately.
 
-Existing limitations: subtitled servers, no dubbed track selector or embedded-subtitle option; source-host changes may still require adapter updates. ZIP does not switch streams mid-download and a failed episode stops the group without creating an incomplete archive.
+English subtitle tracks are now embedded in anime MP4 downloads and retained separately; series ZIPs include the subtitle files too. Existing limitations: subtitled servers and no dubbed track or subtitle-language selector; source-host changes may still require adapter updates. ZIP does not switch streams mid-download and a failed episode stops the group without creating an incomplete archive.

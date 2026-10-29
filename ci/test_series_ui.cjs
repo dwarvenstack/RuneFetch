@@ -6,6 +6,7 @@ const source=fs.readFileSync('webui/js/app.js','utf8');
 const slice=(a,b)=>source.slice(source.indexOf(a),source.indexOf(b));
 const functions=slice('async function startDownload(', '// ── Audio-only quality modal')+
  slice('function openQualityModal(', 'function onFormatsReady(')+
+ slice('function pickQuality(', 'async function confirmDownload(')+
  slice('async function confirmDownload(', '// ── Browser extension confirm modal');
 const detail='https://hianime.at/fullmetal-alchemist-brotherhood-1140';
 const episode=detail.replace('/fullmetal','/watch/fullmetal')+'?ep=19026';
@@ -94,4 +95,13 @@ test('a stale or invalid episode selection cannot queue a download',async()=>{
  h.$('series-scope').value='episode:missing';h.context.updateSeriesChoice();
  assert.equal(h.$('btn-download').disabled,true);
  await h.context.confirmDownload();assert.equal(h.calls.some(c=>c[0]==='add'),false);
+});
+
+test('subtitle note is shown for anime video and hidden for audio-only',async()=>{
+ const h=harness();await h.context.startDownload(detail);
+ assert.equal(h.$('anime-subtitle-note').hidden,false);
+ h.context.pickQuality({fmt:'bestaudio/best',label:'Audio only',isAudio:true});
+ assert.equal(h.$('anime-subtitle-note').hidden,true);
+ h.context.pickQuality({fmt:'best',label:'1080p',isAudio:false});
+ assert.equal(h.$('anime-subtitle-note').hidden,false);
 });
