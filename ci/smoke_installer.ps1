@@ -1,4 +1,4 @@
-param([string]$Version = (Get-Content (Join-Path $PSScriptRoot '../VERSION') -Raw).Trim(), [switch]$SkipLiveDownload)
+param([string]$Version = (Get-Content (Join-Path $PSScriptRoot '../VERSION') -Raw).Trim(), [switch]$SkipLiveDownload, [string]$PythonExecutable = "")
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 Set-Location $root
@@ -41,7 +41,17 @@ if ((Get-FileHash $exe).Hash -ne (Get-FileHash 'dist/RuneFetch/RuneFetch.exe').H
 Write-Output 'PASS: installer replaced a stale executable on reinstall'
 if ((RegistrationSnapshot) -ne $before) { throw 'Test install changed normal app registration' }
 Write-Output 'PASS: personal installation registration preserved'
-$python = Join-Path $root '.venv/Scripts/python.exe'
+if ($PythonExecutable) {
+    $python = $PythonExecutable
+} elseif ($env:pythonLocation -and (Test-Path (Join-Path $env:pythonLocation 'python.exe'))) {
+    # actions/setup-python provides this path; CI does not create a project .venv.
+    $python = Join-Path $env:pythonLocation 'python.exe'
+} elseif (Test-Path (Join-Path $root '.venv/Scripts/python.exe')) {
+    $python = Join-Path $root '.venv/Scripts/python.exe'
+} else {
+    $python = (Get-Command python -ErrorAction Stop).Source
+}
+Write-Output "Using Python for installed-app validation: $python"
 if ($SkipLiveDownload) {
     & $python ci/smoke_bundle.py --exe $exe
 } else {

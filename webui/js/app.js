@@ -74,6 +74,7 @@ const uiIcon = name => `<svg class="ui-icon" aria-hidden="true"><use href="#icon
   ws.on('bridge_url',     onBridgeUrl);
 
   await ws.init();
+  await showRunningVersion();
 
   // Automatic update check, a few seconds after startup so it never competes
   // with restoring the queue or the first paint. The backend throttles this to
@@ -834,15 +835,15 @@ function setupSettingsForm() {
 // Holds the last check result so the Update button knows what to download.
 let _pendingUpdate = null;
 
-function setupUpdates() {
-  // Show the running version immediately — it comes from the native API, so it
-  // is correct even when GitHub is unreachable.
-  window.pywebview?.api?.get_version?.()
-    .then(v => {
-      $('update-status').textContent   = `RuneFetch ${v}`;
-    })
-    .catch(() => {});
+async function showRunningVersion() {
+  // ws.init waits for the native API bridge; reading it earlier can lose the version.
+  try {
+    const version = await window.pywebview.api.get_version();
+    if (version) $('update-status').textContent = `RuneFetch ${version}`;
+  } catch { /* A later manual check can still report the running version. */ }
+}
 
+function setupUpdates() {
   $('btn-check-update').addEventListener('click', () => checkForUpdate(true));
   $('btn-close-update').addEventListener('click', () => $('update-modal').close());
   $('btn-update-later').addEventListener('click', () => $('update-modal').close());

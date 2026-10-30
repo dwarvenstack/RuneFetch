@@ -39,3 +39,19 @@ test('skipped startup check preserves existing update indicator', async () => {
   await h.context.checkForUpdate(false);
   assert.equal(h.status.innerHTML, 'v2.0.2 available'); assert.equal(h.calls.length, 0);
 });
+
+test('running version renders after the native bridge is ready', async () => {
+  const body = source.slice(source.indexOf('async function showRunningVersion('),source.indexOf('function setupUpdates('));
+  const status = {textContent:'RuneFetch —'};
+  const context = vm.createContext({$:()=>status,window:{pywebview:{api:{get_version:async()=> '2.0.3'}}}});
+  vm.runInContext(body,context);
+  await context.showRunningVersion();
+  assert.equal(status.textContent,'RuneFetch 2.0.3');
+  const init=source.slice(source.indexOf('(async () => {'),source.indexOf('// ── Navigation'));
+  assert.ok(init.indexOf('await ws.init();') < init.indexOf('await showRunningVersion();'));
+});
+test('missing native version does not crash initialization', async () => {
+  const body = source.slice(source.indexOf('async function showRunningVersion('),source.indexOf('function setupUpdates('));
+  const context = vm.createContext({$:()=>({}),window:{}});
+  vm.runInContext(body,context);await context.showRunningVersion();
+});
